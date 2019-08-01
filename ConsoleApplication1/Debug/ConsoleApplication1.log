@@ -17,10 +17,10 @@ c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(266
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(267): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(268): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(269): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1194): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1195): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1289): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1437): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1241): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1242): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1336): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1484): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\vulkanutils.h(214): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
   c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(939): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
           with

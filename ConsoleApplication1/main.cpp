@@ -50,7 +50,7 @@ VkCommandPool commandPool;
 VkCommandPool commandPoolCompute;
 
 VkCommandBuffer * commandBuffers;
-VkCommandBuffer depthPrepassCommandBuffer;
+VkCommandBuffer depthPrepassCommandBuffer /*= nullptr*/;
 
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderingDone;
@@ -1149,6 +1149,53 @@ void updateIntermediateDescriptorSet() {
 }
 
 void createDepthPrePassCommandBuffer() {
+	if (depthPrepassCommandBuffer) {
+		vkFreeCommandBuffers(device, commandPool, 1, &depthPrepassCommandBuffer);
+		depthPrepassCommandBuffer = nullptr;
+	}
+
+	VkCommandBufferAllocateInfo commandBufferAllocateInfo;
+	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferAllocateInfo.pNext = nullptr;
+	commandBufferAllocateInfo.commandPool = commandPool;
+	commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferAllocateInfo.commandBufferCount = 1;
+
+	VkResult result = vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &depthPrepassCommandBuffer);
+	CHECK_FOR_CRASH(result);
+
+	VkCommandBufferBeginInfo commandBufferBeginInfo;
+	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	commandBufferBeginInfo.pNext = nullptr;
+	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+	commandBufferBeginInfo.pInheritanceInfo = nullptr;
+
+	result = vkBeginCommandBuffer(depthPrepassCommandBuffer, &commandBufferBeginInfo);
+	CHECK_FOR_CRASH(result);
+
+	VkClearDepthStencilValue clearDepthValue;
+	clearDepthValue.depth = 1.0f; // 1.0f is far clipping plane
+	clearDepthValue.stencil = 0;
+
+	VkClearValue clearValue;
+	clearValue.depthStencil =clearDepthValue;
+
+	VkRect2D renderArea;
+	renderArea.offset = { 0, 0 };
+	renderArea.extent = {windowWidth, windowHeight};
+
+	VkRenderPassBeginInfo depthPrepassInfo;
+	depthPrepassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	depthPrepassInfo.pNext = nullptr;
+	depthPrepassInfo.renderPass = depthPrePass;
+	depthPrepassInfo.framebuffer = depthFramebuffer;
+	depthPrepassInfo.renderArea = renderArea;
+	depthPrepassInfo.clearValueCount = 1;
+	depthPrepassInfo.pClearValues = &clearValue;
+
+	vkCmdBeginRenderPass(depthPrepassCommandBuffer, &depthPrepassInfo, VK_SUBPASS_CONTENTS_INLINE);
+	//hier "mesh parts" zeugs
+
 
 }
 
