@@ -925,7 +925,7 @@ void createCommandBuffers() {
 
 void loadTexture() {
 	//ezImage.load("D:/Users/Chris/Pictures/CGIRenders/Polii2_D.png");
-	ezImage.load("D:/Users/Chris/Pictures/CGIRenders/Polii2_D.png");
+	ezImage.load("../blank.jpg");
 	ezImage.upload(device, physicalDevices[0], commandPool, queue);
 }
 

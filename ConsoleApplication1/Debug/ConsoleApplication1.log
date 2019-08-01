@@ -5,7 +5,6 @@ EXEC : warning : shader.vert:3: '#extension' : extension not supported: GL_KHR_v
   depth.vert
   shader.frag
   shader.comp
-  pch.cpp
   main.cpp
 c:\program files (x86)\windows kits\10\include\10.0.17763.0\shared\minwindef.h(130): warning C4005: "APIENTRY": Makro-Neudefinition
   c:\users\chris\source\repos\consoleapplication1\glfw-3.2.1.bin.win32\include\glfw\glfw3.h(98): note: Siehe vorherige Definition von "APIENTRY"
@@ -57,5 +56,4 @@ c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.
           [
               _Ty=PointLight
           ]
-LINK : warning LNK4098: Standardbibliothek "MSVCRT" steht in Konflikt mit anderen Bibliotheken; /NODEFAULTLIB:Bibliothek verwenden.
   ConsoleApplication1.vcxproj -> C:\Users\Chris\source\repos\ConsoleApplication1\Debug\VulkanRenderer.exe
