@@ -13,18 +13,47 @@ c:\program files (x86)\windows kits\10\include\10.0.17763.0\um\wingdi.h(36): war
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\easyimage.h(87): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(76): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(77): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(229): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(230): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(231): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(232): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1063): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1064): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1154): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1297): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(266): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(267): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(268): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(269): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1194): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1195): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1289): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1437): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\vulkanutils.h(214): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
-  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(902): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(939): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
           with
           [
               _Ty=Vertex
+          ]
+c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.16.27023\include\xmemory0(881): warning C4244: "Argument": Konvertierung von "_Ty" in "float", möglicher Datenverlust
+          with
+          [
+              _Ty=int
+          ]
+  c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.16.27023\include\vector(900): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::_Default_allocator_traits<_Alloc>::construct<_Ty,glm::vec<3,float,0>,int,glm::vec3&>(_Alloc &,_Objty *const ,glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+          with
+          [
+              _Alloc=std::allocator<PointLight>,
+              _Ty=PointLight,
+              _Objty=PointLight
+          ]
+  c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.16.27023\include\vector(902): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::_Default_allocator_traits<_Alloc>::construct<_Ty,glm::vec<3,float,0>,int,glm::vec3&>(_Alloc &,_Objty *const ,glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+          with
+          [
+              _Alloc=std::allocator<PointLight>,
+              _Ty=PointLight,
+              _Objty=PointLight
+          ]
+  c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.16.27023\include\vector(916): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::_Emplace_back_with_unused_capacity<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+          with
+          [
+              _Ty=PointLight
+          ]
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(975): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::emplace_back<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+          with
+          [
+              _Ty=PointLight
           ]
   ConsoleApplication1.vcxproj -> C:\Users\Chris\source\repos\ConsoleApplication1\Debug\VulkanRenderer.exe

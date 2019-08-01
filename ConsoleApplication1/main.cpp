@@ -15,10 +15,11 @@
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // Bei OpenGL ist Z-Buffer zwischen -1 und 1, in Vulkan zwischen 0 und 1. Makro um GLMs Projectionmatrix auf Vulkan zu stellen
 #include <glm.hpp>
 #include <../glm/gtc/matrix_transform.hpp>
+#include <../glm/gtc/random.hpp>
 #include <chrono>
 #define DEBUG_BUILD
 
-const int MAX_POINT_LIGHT_COUNT = 2047;
+const int MAX_POINT_LIGHT_COUNT = 1024;
 const uint32_t MAX_POINT_LIGHT_PER_TILE = 1023;
 const int TILE_SIZE = 16;
 
@@ -29,30 +30,57 @@ VkSurfaceKHR surface;
 VkDevice device;
 VkSwapchainKHR swapchain = VK_NULL_HANDLE;
 VkImageView *imageViews;
+
 VkFramebuffer *framebuffers;
 VkFramebuffer depthFramebuffer;
+
 VkShaderModule shaderModuleVert;
 VkShaderModule shaderModuleFrag;
 VkShaderModule shaderModuleDepth;
 VkShaderModule shaderModuleComp;
+
 VkRenderPass depthPrePass;
 VkRenderPass renderPass;
+
 Pipeline pipeline;
 VkPipeline pipelineCompute;
 VkPipelineLayout pipelineLayoutCompute;
+
 VkCommandPool commandPool;
 VkCommandPool commandPoolCompute;
+
 VkCommandBuffer * commandBuffers;
+VkCommandBuffer depthPrepassCommandBuffer;
+
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderingDone;
+
 VkQueue queue;
 VkQueue computeQueue;
+
 VkBuffer vertexBuffer;
 VkBuffer indexBuffer;
+VkBuffer uniformBuffer;
+VkBuffer stagingBuffer;
+VkBuffer cameraStagingBuffer;
+VkBuffer cameraUniformBuffer;
+VkBuffer lightVisibilityBuffer;
+VkBuffer pointlightBuffer;
+VkBuffer lightStagingBuffer;
 VkDeviceMemory vertexBufferDeviceMemory;
 VkDeviceMemory indexBufferDeviceMemory;
-VkBuffer uniformBuffer;
 VkDeviceMemory uniformBufferMemory;
+VkDeviceMemory stagingBufferMemory;
+VkDeviceMemory cameraStagingBufferMemory;
+VkDeviceMemory cameraUniformBufferMemory;
+VkDeviceMemory lightVisibilityBufferMemory;
+VkDeviceMemory pointlightBufferMemory;
+VkDeviceMemory lightStagingBufferMemory;
+
+VkDeviceSize lightVisibilityBufferSize = 0;
+VkDeviceSize pointlightBufferSize = 0;
+
+
 uint32_t amountOfImagesInSwapchain = 0;
 GLFWwindow* window;
 
@@ -62,12 +90,9 @@ int tileCountPerCol;
 // This storage buffer stores visible lights for each tile
 	// which is output from the light culling compute shader
 	// max MAX_POINT_LIGHT_PER_TILE point lights per tile
-VkBuffer lightVisibilityBuffer;
-VkDeviceMemory lightVisibilityBufferMemory;
-VkDeviceSize lightVisibilityBufferSize = 0;
-VkBuffer pointlightBuffer;
-VkDeviceMemory pointlightBufferMemory;
-VkDeviceSize pointlightBufferSize = 0;
+
+
+
 
 struct PointLight
 {
@@ -83,6 +108,8 @@ public:
 	{};
 };
 
+std::vector<PointLight> pointLights;
+
 uint32_t windowWidth = 1280;
 uint32_t windowHeight = 720;
 const VkFormat imageFormat = VK_FORMAT_B8G8R8A8_UNORM; //TODO CIV
@@ -94,17 +121,27 @@ struct UniformBufferObject {
 	glm::vec3 lightPosition;
 };
 
+struct CameraUbo {
+	glm::mat4 view;
+	glm::mat4 proj;
+	glm::mat4 projview;
+	glm::vec3 cameraPos;
+};
+
 UniformBufferObject ubo;
 
-VkDescriptorSetLayout descriptorSetLayout;
-VkDescriptorSetLayout setLayoutLightCulling;
-VkDescriptorSetLayout cameraSetLayout;
-VkDescriptorSetLayout intermediateSetLayout;
+VkDescriptorSetLayout descriptorSetLayout; 
+VkDescriptorSetLayout descriptorSetLayoutLightCulling;
+VkDescriptorSetLayout descriptorSetLayoutCamera;
+VkDescriptorSetLayout descriptorSetLayoutIntermediate;
 std::vector<VkDescriptorSetLayout> allSetLayouts;
 
 VkDescriptorSet lightCullingDescriptorSet;
-VkDescriptorPool descriptorPool;
 VkDescriptorSet descriptorSet;
+VkDescriptorSet cameraDescriptorSet;
+VkDescriptorSet intermediateDescriptorSet;
+VkDescriptorPool descriptorPool;
+
 
 
 EasyImage ezImage;
@@ -633,7 +670,7 @@ void createDescriptorSetLayout() {
 	LightSetLayoutInfo.bindingCount = setLayoutBindingsLight.size();
 	LightSetLayoutInfo.pBindings = setLayoutBindingsLight.data();
 
-	result = vkCreateDescriptorSetLayout(device, &LightSetLayoutInfo, nullptr, &setLayoutLightCulling);
+	result = vkCreateDescriptorSetLayout(device, &LightSetLayoutInfo, nullptr, &descriptorSetLayoutLightCulling);
 	CHECK_FOR_CRASH(result);
 
 
@@ -644,14 +681,14 @@ void createDescriptorSetLayout() {
 	cameraLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
 	cameraLayoutBinding.pImmutableSamplers = nullptr;
 
-	VkDescriptorSetLayoutCreateInfo cameraSetLayoutCreateInfo;
-	cameraSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	cameraSetLayoutCreateInfo.pNext = nullptr;
-	cameraSetLayoutCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
-	cameraSetLayoutCreateInfo.bindingCount = 1;
-	cameraSetLayoutCreateInfo.pBindings = &cameraLayoutBinding;
+	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCameraCreateInfo;
+	descriptorSetLayoutCameraCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	descriptorSetLayoutCameraCreateInfo.pNext = nullptr;
+	descriptorSetLayoutCameraCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
+	descriptorSetLayoutCameraCreateInfo.bindingCount = 1;
+	descriptorSetLayoutCameraCreateInfo.pBindings = &cameraLayoutBinding;
 
-	result = vkCreateDescriptorSetLayout(device, &cameraSetLayoutCreateInfo, nullptr, &cameraSetLayout);
+	result = vkCreateDescriptorSetLayout(device, &descriptorSetLayoutCameraCreateInfo, nullptr, &descriptorSetLayoutCamera);
 	CHECK_FOR_CRASH(result);
 
 	VkDescriptorSetLayoutBinding samplerLayoutBinding;
@@ -661,21 +698,21 @@ void createDescriptorSetLayout() {
 	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	samplerLayoutBinding.pImmutableSamplers = nullptr;
 
-	VkDescriptorSetLayoutCreateInfo intermediateSetLayoutCreateInfo;
-	intermediateSetLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	intermediateSetLayoutCreateInfo.pNext = nullptr;
-	intermediateSetLayoutCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
-	intermediateSetLayoutCreateInfo.bindingCount = 1;
-	intermediateSetLayoutCreateInfo.pBindings = &samplerLayoutBinding;
+	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutIntermediateCreateInfo;
+	descriptorSetLayoutIntermediateCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	descriptorSetLayoutIntermediateCreateInfo.pNext = nullptr;
+	descriptorSetLayoutIntermediateCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
+	descriptorSetLayoutIntermediateCreateInfo.bindingCount = 1;
+	descriptorSetLayoutIntermediateCreateInfo.pBindings = &samplerLayoutBinding;
 
-	result = vkCreateDescriptorSetLayout(device, &intermediateSetLayoutCreateInfo, nullptr, &intermediateSetLayout);
+	result = vkCreateDescriptorSetLayout(device, &descriptorSetLayoutIntermediateCreateInfo, nullptr, &descriptorSetLayoutIntermediate);
 	CHECK_FOR_CRASH(result);
 
 	
 	allSetLayouts.push_back(descriptorSetLayout);
-	allSetLayouts.push_back(setLayoutLightCulling);
-	allSetLayouts.push_back(cameraSetLayout);
-	allSetLayouts.push_back(intermediateSetLayout);
+	allSetLayouts.push_back(descriptorSetLayoutLightCulling);
+	allSetLayouts.push_back(descriptorSetLayoutCamera);
+	allSetLayouts.push_back(descriptorSetLayoutIntermediate);
 }
 
 void createPipeline() {
@@ -744,7 +781,7 @@ void createLightCullingDescriptorSet() {
 	allocateInfo.pNext = nullptr;
 	allocateInfo.descriptorPool = descriptorPool;
 	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &setLayoutLightCulling;
+	allocateInfo.pSetLayouts = &descriptorSetLayoutLightCulling;
 
 	vkAllocateDescriptorSets(device, &allocateInfo, &lightCullingDescriptorSet);
 }
@@ -908,15 +945,41 @@ void createIndexBuffer() {
 
 void createUniformBuffer() {
 	VkDeviceSize bufferSize = sizeof(ubo);
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, uniformBuffer, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBufferMemory);
+	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer, //TODO 0
+		/*VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, uniformBufferMemory);
+	//bei uniform eigentlich VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBuffer, //TODO 0
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBufferMemory); 
+
+
+	//ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(1.0));
+	void* data;
+	vkMapMemory(device, stagingBufferMemory, 0, sizeof(ubo), 0, &data);
+	memcpy(data, &ubo, sizeof(ubo));
+	vkUnmapMemory(device, stagingBufferMemory);
+	copyBuffer(device, queue, commandPool, stagingBuffer, uniformBuffer, sizeof(ubo));
+
+	//Camera buffer
+	bufferSize = sizeof(CameraUbo);
+	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,	//TODO 0
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraStagingBufferMemory);
+	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, cameraUniformBuffer, //TODO 0
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, cameraUniformBufferMemory);
 }
 
 void createLights() {
-	//TODO
+	for (int i = 0; i < MAX_POINT_LIGHT_COUNT; i++) {
+		glm::vec3 color;
+		do { color = { glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)) }; } 
+		while (color.length() < 0.8f);
+		pointLights.emplace_back(glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)), 5, color); //emplace_back(minLightPos, maxLightPos, lightRadius, color)
+	}
 
 	pointlightBufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
-	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
-		pointlightBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory); //TODO physDev[0] und vll storage zu uniform
+	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, lightStagingBuffer,
+		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, lightStagingBufferMemory);
+	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory); //TODO physDev[0] und vll storage zu uniform
 }
 
 void createDescriptorPool() {
@@ -1019,6 +1082,74 @@ void createDescriptorSet() {
 	writeDescriptorSets.push_back(descriptorSampler);
 
 	vkUpdateDescriptorSets(device, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, nullptr);
+}
+
+void createCameraDescriptorSet() {
+	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo;
+	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorSetAllocateInfo.pNext = nullptr;
+	descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+	descriptorSetAllocateInfo.descriptorSetCount = 1;
+	descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayoutCamera;
+
+	VkResult result = vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &cameraDescriptorSet);
+	CHECK_FOR_CRASH(result);
+
+	VkDescriptorBufferInfo descriptorBufferInfo;
+	descriptorBufferInfo.buffer = cameraUniformBuffer;
+	descriptorBufferInfo.offset = 0;
+	descriptorBufferInfo.range = sizeof(ubo);
+
+	VkWriteDescriptorSet descriptorWrite;
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.pNext = nullptr;
+	descriptorWrite.dstSet = cameraDescriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.dstArrayElement = 0;
+	descriptorWrite.descriptorCount = 1;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; //TODO maybe storage?
+	descriptorWrite.pImageInfo = nullptr;
+	descriptorWrite.pBufferInfo = &descriptorBufferInfo;
+	descriptorWrite.pTexelBufferView = nullptr;
+
+	vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+}
+
+void createIntermediateDescriptorSet() {
+	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo;
+	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	descriptorSetAllocateInfo.pNext = nullptr;
+	descriptorSetAllocateInfo.descriptorPool = descriptorPool;
+	descriptorSetAllocateInfo.descriptorSetCount = 1;
+	descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayoutIntermediate;
+
+	VkResult result = vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &intermediateDescriptorSet);
+	CHECK_FOR_CRASH(result);
+}
+
+void updateIntermediateDescriptorSet() {
+	VkDescriptorImageInfo depthImageInfo;
+	depthImageInfo.sampler = ezImage.getSampler();
+	depthImageInfo.imageView = depthImage.getImageView();
+	depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+	VkWriteDescriptorSet descriptorWrite;
+	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	descriptorWrite.pNext = nullptr;
+	descriptorWrite.dstSet = intermediateDescriptorSet;
+	descriptorWrite.dstBinding = 0;
+	descriptorWrite.dstArrayElement = 0;
+	descriptorWrite.descriptorCount = 1;
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; //TODO maybe uniform?
+	descriptorWrite.pImageInfo = &depthImageInfo;
+	descriptorWrite.pBufferInfo = nullptr;
+	descriptorWrite.pTexelBufferView = nullptr;
+
+	vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
+}
+
+void createDepthPrePassCommandBuffer() {
+
 }
 
 void recordCommandBuffers() {
@@ -1133,6 +1264,10 @@ void startVulkan() {
 	createLightCullingDescriptorSet();
 	createLightVisibilityBuffer();
 	createDescriptorSet();
+	createCameraDescriptorSet();
+	createIntermediateDescriptorSet();
+	updateIntermediateDescriptorSet();
+	createDepthPrePassCommandBuffer();
 	recordCommandBuffers();
 	createSemaphores();
 }
@@ -1251,25 +1386,29 @@ void shutdownVulkan() {
 
 	vkFreeDescriptorSets(device, descriptorPool, 1, &lightCullingDescriptorSet);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
-	vkDestroyDescriptorSetLayout(device, setLayoutLightCulling, nullptr);
-	vkDestroyDescriptorSetLayout(device, cameraSetLayout, nullptr);
-	vkDestroyDescriptorSetLayout(device, intermediateSetLayout, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutLightCulling, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutCamera, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutIntermediate, nullptr);
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 	vkFreeMemory(device, uniformBufferMemory, nullptr);
 	vkDestroyBuffer(device, uniformBuffer, nullptr);
-
 	vkFreeMemory(device, indexBufferDeviceMemory, nullptr);
 	vkDestroyBuffer(device, indexBuffer, nullptr);
-
 	vkFreeMemory(device, vertexBufferDeviceMemory, nullptr);
 	vkDestroyBuffer(device, vertexBuffer, nullptr);
-
 	vkFreeMemory(device, lightVisibilityBufferMemory, nullptr);
 	vkDestroyBuffer(device, lightVisibilityBuffer, nullptr);
-
 	vkFreeMemory(device, pointlightBufferMemory, nullptr);
 	vkDestroyBuffer(device, pointlightBuffer, nullptr);
+	vkFreeMemory(device, stagingBufferMemory, nullptr);
+	vkDestroyBuffer(device, stagingBuffer, nullptr);
+	vkFreeMemory(device, cameraStagingBufferMemory, nullptr);
+	vkDestroyBuffer(device, cameraStagingBuffer, nullptr);
+	vkFreeMemory(device, cameraUniformBufferMemory, nullptr);
+	vkDestroyBuffer(device, cameraUniformBuffer, nullptr);
+	vkFreeMemory(device, lightStagingBufferMemory, nullptr);
+	vkDestroyBuffer(device, lightStagingBuffer, nullptr);
 
 	ezImage.destroy();
 
@@ -1285,6 +1424,7 @@ void shutdownVulkan() {
 		vkDestroyFramebuffer(device, framebuffers[i], nullptr);
 	}
 	delete[] framebuffers;
+	vkDestroyFramebuffer(device, depthFramebuffer, nullptr);
 
 
 	vkDestroyPipeline(device, pipelineCompute, nullptr);
@@ -1302,6 +1442,7 @@ void shutdownVulkan() {
 	vkDestroyShaderModule(device, shaderModuleVert, nullptr);
 	vkDestroyShaderModule(device, shaderModuleFrag, nullptr);
 	vkDestroyShaderModule(device, shaderModuleComp, nullptr);
+	vkDestroyShaderModule(device, shaderModuleDepth, nullptr);
 	vkDestroySwapchainKHR(device, swapchain, nullptr);
 	vkDestroyDevice(device, nullptr);
 	vkDestroySurfaceKHR(instance, surface, nullptr);
