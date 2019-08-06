@@ -22,7 +22,8 @@
 const int MAX_POINT_LIGHT_COUNT = 1024;
 const uint32_t MAX_POINT_LIGHT_PER_TILE = 1023;
 const int TILE_SIZE = 16;
-
+int tileCountPerRow = 0;
+int tileCountPerCol = 0;
 
 VkInstance instance;
 std::vector<VkPhysicalDevice> physicalDevices;
@@ -54,6 +55,8 @@ VkCommandBuffer depthPrepassCommandBuffer /*= nullptr*/;
 
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderingDone;
+VkSemaphore semaphoreLightcullingDone;
+VkSemaphore semaphoreDepthPrepassDone;
 
 VkQueue queue;
 VkQueue computeQueue;
@@ -67,6 +70,7 @@ VkBuffer cameraUniformBuffer;
 VkBuffer lightVisibilityBuffer;
 VkBuffer pointlightBuffer;
 VkBuffer lightStagingBuffer;
+
 VkDeviceMemory vertexBufferDeviceMemory;
 VkDeviceMemory indexBufferDeviceMemory;
 VkDeviceMemory uniformBufferMemory;
@@ -83,9 +87,6 @@ VkDeviceSize pointlightBufferSize = 0;
 
 uint32_t amountOfImagesInSwapchain = 0;
 GLFWwindow* window;
-
-int tileCountPerRow;
-int tileCountPerCol;
 
 // This storage buffer stores visible lights for each tile
 	// which is output from the light culling compute shader
@@ -729,6 +730,7 @@ void createPipeline() {
 	pipeline.create(device, renderPass, depthPrePass, allSetLayouts);
 }
 
+//hier nächstes mal weiter
 void createPipelineCompute() {
 	VkPushConstantRange pushConstantRange;
 	pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
@@ -924,13 +926,12 @@ void createCommandBuffers() {
 }
 
 void loadTexture() {
-	//ezImage.load("D:/Users/Chris/Pictures/CGIRenders/Polii2_D.png");
 	ezImage.load("../blank.jpg");
 	ezImage.upload(device, physicalDevices[0], commandPool, queue);
 }
 
 void loadMesh() {
-	dragonMesh.create("meshes/cube.obj");
+	dragonMesh.loadModelFromFile(device, physicalDevices[0], queue, commandPool, "meshes/cube.obj", descriptorPool); //TODO
 	vertices = dragonMesh.getVertices();
 	indices = dragonMesh.getIndices();
 }
@@ -957,7 +958,7 @@ void createUniformBuffer() {
 	vkMapMemory(device, stagingBufferMemory, 0, sizeof(ubo), 0, &data);
 	memcpy(data, &ubo, sizeof(ubo));
 	vkUnmapMemory(device, stagingBufferMemory);
-	copyBuffer(device, queue, commandPool, stagingBuffer, uniformBuffer, sizeof(ubo));
+	copyBuffer(device, queue, commandPool, stagingBuffer, uniformBuffer, sizeof(ubo), 0, 0);
 
 	//Camera buffer
 	bufferSize = sizeof(CameraUbo);
@@ -1194,8 +1195,21 @@ void createDepthPrePassCommandBuffer() {
 	depthPrepassInfo.pClearValues = &clearValue;
 
 	vkCmdBeginRenderPass(depthPrepassCommandBuffer, &depthPrepassInfo, VK_SUBPASS_CONTENTS_INLINE);
-	//hier "mesh parts" zeugs
+	
+	for (const auto& part : dragonMesh.getMeshParts()) {
+		vkCmdBindPipeline(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getDepthPipeline());
+		std::array<VkDescriptorSet, 2> depthDescriptorSets = { descriptorSet, cameraDescriptorSet };
+		vkCmdBindDescriptorSets(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getDepthLayout(), 0, depthDescriptorSets.size(), depthDescriptorSets.data(), 0, nullptr);
+		
+		VkBuffer depthVertexBuffer[] = { part.vertexBufferSection.buffer };
+		VkDeviceSize depthVertexBufferOffset[] = {part.vertexBufferSection.offset};
+		vkCmdBindVertexBuffers(depthPrepassCommandBuffer, 0, 1, depthVertexBuffer, depthVertexBufferOffset);
+		vkCmdBindIndexBuffer(depthPrepassCommandBuffer, part.indexBufferSection.buffer, part.indexBufferSection.offset, VK_INDEX_TYPE_UINT32);
 
+		vkCmdDrawIndexed(depthPrepassCommandBuffer, part.indexCount, 1, 0, 0, 0);
+	}
+	vkCmdEndRenderPass(depthPrepassCommandBuffer);
+	result = vkEndCommandBuffer(depthPrepassCommandBuffer);
 
 }
 
@@ -1217,23 +1231,40 @@ void recordCommandBuffers() {
 		renderPassBeginInfo.framebuffer = framebuffers[i];
 		renderPassBeginInfo.renderArea.offset = { 0, 0 };
 		renderPassBeginInfo.renderArea.extent = { windowWidth, windowHeight };
-		VkClearValue clearValue = { 0.0f, 0.0f, 0.0f, 1.0f };
-		VkClearValue depthClearValue = { 1.0f, 0 };
+		VkClearValue clearValue;
+		clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
+		//VkClearValue depthClearValue = { 1.0f, 0 }; //don't reset with depth prepass!
 
-		std::vector<VkClearValue> clearValues;
-		clearValues.push_back(clearValue);
-		clearValues.push_back(depthClearValue);
-
-		renderPassBeginInfo.clearValueCount = clearValues.size();
-		renderPassBeginInfo.pClearValues = clearValues.data();
+		renderPassBeginInfo.clearValueCount = 1;
+		renderPassBeginInfo.pClearValues = &clearValue;
 
 
 		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE); //nur primäre Buffers nutzen, sonst VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
 
-		VkBool32 usePhong = VK_TRUE;
-		vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(usePhong), &usePhong);
+		PushConstantObject pco = {
+			static_cast<int>(windowWidth),
+			static_cast<int>(windowHeight),
+			tileCountPerRow, tileCountPerCol
+		};
+		vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pco), &pco);
+
+		//VkBool32 usePhong = VK_TRUE;
+		//vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(usePhong), &usePhong);
 
 		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
+		
+		std::array<VkDescriptorSet, 4> descriptorSets = { descriptorSet, lightCullingDescriptorSet, cameraDescriptorSet, intermediateDescriptorSet }; //this order is important, see allSetLayouts in createDescriptorSetLayout()!
+		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, descriptorSets.size(), descriptorSets.data(), 0, nullptr);
+
+		for (const auto& part : dragonMesh.getMeshParts()) {
+			VkBuffer vertexBuffer[] = { part.vertexBufferSection.buffer };
+			VkDeviceSize offsets[] = { part.vertexBufferSection.offset };
+			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffer, offsets);
+			vkCmdBindIndexBuffer(commandBuffers[i], part.indexBufferSection.buffer, part.indexBufferSection.offset, VK_INDEX_TYPE_UINT32);
+
+			vkCmdDrawIndexed(commandBuffers[i], part.indexCount, 1, 0, 0, 0);
+			vkCmdEndRenderPass(commandBuffers[i]);
+		}
 
 		VkViewport viewport;
 		viewport.x = 0.0f;
@@ -1249,20 +1280,6 @@ void recordCommandBuffers() {
 		scissor.extent = { windowWidth, windowHeight };
 		vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
 
-		VkDeviceSize offsets[]{ 0 };
-		vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, &vertexBuffer, offsets);
-		vkCmdBindIndexBuffer(commandBuffers[i], indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-
-		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-		vkCmdDrawIndexed(commandBuffers[i], indices.size(), 1, 0, 0, 0);
-
-		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, 1, &descriptorSet, 0, nullptr);
-
-		vkCmdDrawIndexed(commandBuffers[i], indices.size(), 1, 0, 0, 0);
-
-		vkCmdEndRenderPass(commandBuffers[i]);
-
 		result = vkEndCommandBuffer(commandBuffers[i]);
 		CHECK_FOR_CRASH(result);
 	}
@@ -1277,6 +1294,10 @@ void createSemaphores() {
 	VkResult result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreImageAvailable);
 	CHECK_FOR_CRASH(result);
 	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreRenderingDone);
+	CHECK_FOR_CRASH(result);
+	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreLightcullingDone);
+	CHECK_FOR_CRASH(result);
+	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreDepthPrepassDone);
 	CHECK_FOR_CRASH(result);
 }
 
@@ -1353,21 +1374,62 @@ void recreateSwapchain() {
 
 void drawFrame() {
 	uint32_t imageIndex;
-	vkAcquireNextImageKHR(device, swapchain, (std::numeric_limits<uint64_t>::max)(), semaphoreImageAvailable, VK_NULL_HANDLE, &imageIndex);
+	VkResult result = vkAcquireNextImageKHR(device, swapchain, (std::numeric_limits<uint64_t>::max)(), semaphoreImageAvailable, VK_NULL_HANDLE, &imageIndex);
+	if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+		recreateSwapchain();
+		return;
+	}
+	//Submit depth prepass to graphics queue
+	VkSubmitInfo submitInfoDepthPrepass;
+	submitInfoDepthPrepass.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfoDepthPrepass.pNext = nullptr;
+	submitInfoDepthPrepass.waitSemaphoreCount = 0;
+	submitInfoDepthPrepass.pWaitSemaphores = nullptr;
+	submitInfoDepthPrepass.pWaitDstStageMask = nullptr;
+	submitInfoDepthPrepass.commandBufferCount = 1;
+	submitInfoDepthPrepass.pCommandBuffers = &depthPrepassCommandBuffer;
+	submitInfoDepthPrepass.signalSemaphoreCount = 1;
+	submitInfoDepthPrepass.pSignalSemaphores = &semaphoreDepthPrepassDone;
 
-	VkSubmitInfo submitInfo;
-	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.pNext = nullptr;
-	submitInfo.waitSemaphoreCount = 1;
-	submitInfo.pWaitSemaphores = &semaphoreImageAvailable;
-	VkPipelineStageFlags waitStageMask[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT }; //Gibt an, wo die Semaphore in der Pipeline warten soll (hier beim Color Attachment)
-	submitInfo.pWaitDstStageMask = waitStageMask;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &(commandBuffers[imageIndex]);
-	submitInfo.signalSemaphoreCount = 1;
-	submitInfo.pSignalSemaphores = &semaphoreRenderingDone;
+	result = vkQueueSubmit(queue, 1, &submitInfoDepthPrepass, VK_NULL_HANDLE);
+	CHECK_FOR_CRASH(result);
+	
 
-	VkResult result = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+	//Submit lightculling to compute queue
+	
+	//todo v
+	VkPipelineStageFlags waitStagesLight[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+	/*VkSubmitInfo submitInfoLightculling;
+	submitInfoLightculling.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfoLightculling.pNext = nullptr;
+	submitInfoLightculling.waitSemaphoreCount = 1;
+	submitInfoLightculling.pWaitSemaphores = &semaphoreDepthPrepassDone;
+	submitInfoLightculling.pWaitDstStageMask = waitStagesLight;
+	submitInfoLightculling.commandBufferCount = 1;
+	submitInfoLightculling.pCommandBuffers = &lightcullingCommandBuffer; //todo
+	submitInfoLightculling.signalSemaphoreCount = 1;
+	submitInfoLightculling.pSignalSemaphores = &semaphoreLightcullingDone;
+
+	result = vkQueueSubmit(computeQueue, 1, &submitInfoLightculling, VK_NULL_HANDLE);*/
+	CHECK_FOR_CRASH(result);
+	
+
+	//Submit Graphics to graphics queue
+	
+	VkPipelineStageFlags waitStagesRender[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
+	VkSemaphore waitSemaphores[] = { semaphoreImageAvailable/*, semaphoreLightcullingDone */}; //todo
+	VkSubmitInfo submitInfoRender;
+	submitInfoRender.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfoRender.pNext = nullptr;
+	submitInfoRender.waitSemaphoreCount = 1; //todo 2
+	submitInfoRender.pWaitSemaphores = waitSemaphores;
+	submitInfoRender.pWaitDstStageMask = waitStagesRender;
+	submitInfoRender.commandBufferCount = 1;
+	submitInfoRender.pCommandBuffers = &(commandBuffers[imageIndex]);
+	submitInfoRender.signalSemaphoreCount = 1;
+	submitInfoRender.pSignalSemaphores = &semaphoreRenderingDone;
+
+	result = vkQueueSubmit(queue, 1, &submitInfoRender, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
 
 	VkPresentInfoKHR presentInfo;
@@ -1456,6 +1518,7 @@ void shutdownVulkan() {
 	vkDestroyBuffer(device, cameraUniformBuffer, nullptr);
 	vkFreeMemory(device, lightStagingBufferMemory, nullptr);
 	vkDestroyBuffer(device, lightStagingBuffer, nullptr);
+	dragonMesh.cleanup(device);
 
 	ezImage.destroy();
 

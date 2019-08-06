@@ -2,6 +2,7 @@
 #define VK_USE_PLATFORM_WIN32_KHR //Muss VOR #include <GLFW\glfw3.h> stehen
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW\glfw3.h>
+#include <../glm/gtc/matrix_transform.hpp>
 #include <vector>
 
 //Makro zum Prüfen auf Crashes, löst Haltepunkt aus bei Crash
@@ -9,6 +10,14 @@
 		if (value != VK_SUCCESS) {\
 			__debugbreak();\
 		}
+
+struct PushConstantObject {
+	glm::ivec2 viewportSize;
+	glm::ivec2 tileNums;
+
+	PushConstantObject(int viewportSizeX, int viewportSizeY, int tileNumX, int tileNumY) :
+		viewportSize(viewportSizeX, viewportSizeY), tileNums(tileNumX, tileNumY) {}
+};
 
 uint32_t findMemoryTypeIndex(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
@@ -188,12 +197,12 @@ void createImageView(VkDevice device, VkImage image, VkFormat format, VkImageAsp
 	CHECK_FOR_CRASH(result);
 }
 
-void copyBuffer(VkDevice device, VkQueue queue, VkCommandPool commandPool, VkBuffer src, VkBuffer dest, VkDeviceSize size) {
+void copyBuffer(VkDevice device, VkQueue queue, VkCommandPool commandPool, VkBuffer src, VkBuffer dest, VkDeviceSize size, VkDeviceSize srcOffset, VkDeviceSize dstOffset) {
 	VkCommandBuffer commandBuffer = startSingleTimeCommandBuffer(device, commandPool);
 
 	VkBufferCopy bufferCopy;
-	bufferCopy.srcOffset = 0;
-	bufferCopy.dstOffset = 0;
+	bufferCopy.srcOffset = srcOffset;
+	bufferCopy.dstOffset = dstOffset;
 	bufferCopy.size = size;
 	vkCmdCopyBuffer(commandBuffer, src, dest, 1, &bufferCopy);
 
@@ -216,7 +225,7 @@ void createAndUploadBuffer(VkDevice device, VkPhysicalDevice physicalDevice, VkQ
 
 	createBuffer(device, physicalDevice, bufferSize, usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, buffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, deviceMemory);
 
-	copyBuffer(device, queue, commandPool, stagingBuffer, buffer, bufferSize); //Daten vom Stage Buffer in Vertex-/Index-/...buffer kopieren, um Daten vom RAM ins VRAM zu bekommen
+	copyBuffer(device, queue, commandPool, stagingBuffer, buffer, bufferSize, 0, 0); //Daten vom Stage Buffer in Vertex-/Index-/...buffer kopieren, um Daten vom RAM ins VRAM zu bekommen
 
 	vkDestroyBuffer(device, stagingBuffer, nullptr);
 	vkFreeMemory(device, stagingBufferMemory, nullptr);

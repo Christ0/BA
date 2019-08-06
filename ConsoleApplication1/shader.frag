@@ -11,9 +11,16 @@ layout(location = 0) out vec4 outColor;
 
 layout(binding = 1) uniform sampler2D tex;
 
-layout(push_constant) uniform PushConstants{
-	bool usePhong;
-} pushConts;
+//layout(push_constant) uniform PushConstants{
+//	bool usePhong;
+//} pushConts;
+
+layout(push_constant) uniform PushConstantObject
+{
+	ivec2 viewport_size;
+	ivec2 tile_nums;
+    int debugview_index;
+} push_constants;
 
 vec4 phong();
 vec4 cartoon();
@@ -23,15 +30,8 @@ void main(){
 	//outColor = texture(tex, fragUVCoord);
 
 
-	if(pushConts.usePhong){
-		outColor = phong();
-	}
-	else{
-		outColor = cartoon();
-	}
+	outColor = phong();
 	
-	
-
 	//float val = dot(N, V);
 	//outColor = vec4(val, val, val, 1.0);
 

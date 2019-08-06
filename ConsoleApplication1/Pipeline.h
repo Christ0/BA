@@ -142,7 +142,7 @@ public:
 		
 		pushConstantRange.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 		pushConstantRange.offset = 0;
-		pushConstantRange.size = sizeof(VkBool32);
+		pushConstantRange.size = sizeof(PushConstantObject);
 
 
 		//=============Depth PrePass Pipeline=================
