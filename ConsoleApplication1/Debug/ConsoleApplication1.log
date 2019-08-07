@@ -17,16 +17,16 @@ c:\users\chris\source\repos\consoleapplication1\consoleapplication1\mesh.h(153):
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\mesh.h(154): warning C4101: "stagingBufferModelMemory": Unreferenzierte lokale Variable
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(76): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(77): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(267): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(268): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(269): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(270): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1271): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1272): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1356): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1546): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(272): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(273): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(274): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(275): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1348): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1349): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1496): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1690): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\vulkanutils.h(223): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
-  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(939): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1045): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
           with
           [
               _Ty=Vertex
@@ -55,7 +55,7 @@ c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.
           [
               _Ty=PointLight
           ]
-  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(975): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::emplace_back<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1081): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::emplace_back<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
           with
           [
               _Ty=PointLight

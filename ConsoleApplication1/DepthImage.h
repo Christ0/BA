@@ -85,7 +85,7 @@ public:
 		depthStencilStateCreateInfo.pNext = nullptr;
 		depthStencilStateCreateInfo.flags = 0;
 		depthStencilStateCreateInfo.depthTestEnable = VK_TRUE;
-		depthStencilStateCreateInfo.depthWriteEnable = VK_FALSE;
+		depthStencilStateCreateInfo.depthWriteEnable = VK_FALSE; //need VK_FALSE because of depth prepass
 		depthStencilStateCreateInfo.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 		depthStencilStateCreateInfo.depthBoundsTestEnable = VK_FALSE;
 		depthStencilStateCreateInfo.stencilTestEnable = VK_FALSE;

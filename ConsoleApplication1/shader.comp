@@ -1,5 +1,10 @@
 #version 450
 
+layout(push_constant) uniform PushConstandObject{
+	ivec2 viewportSize;
+	ivec2 tileNums;
+}pushConstants;
+
 void main(){
 
 }

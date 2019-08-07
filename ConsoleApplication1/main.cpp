@@ -51,7 +51,8 @@ VkCommandPool commandPool;
 VkCommandPool commandPoolCompute;
 
 VkCommandBuffer * commandBuffers;
-VkCommandBuffer depthPrepassCommandBuffer /*= nullptr*/;
+VkCommandBuffer depthPrepassCommandBuffer;
+VkCommandBuffer lightCullingCommandBuffer;
 
 VkSemaphore semaphoreImageAvailable;
 VkSemaphore semaphoreRenderingDone;
@@ -130,6 +131,10 @@ struct CameraUbo {
 };
 
 UniformBufferObject ubo;
+glm::mat4 modelMatrix;
+glm::mat4 viewMatrix;
+glm::mat4 projMatrix;
+glm::mat4 projViewMatrix;
 
 VkDescriptorSetLayout descriptorSetLayout; 
 VkDescriptorSetLayout descriptorSetLayoutLightCulling;
@@ -549,11 +554,13 @@ void createRenderPass() {
 		depthAttachmentDescription.flags = 0;
 		depthAttachmentDescription.format = DepthImage::findDepthFormat(physicalDevices[0]); //TODO 0
 		depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR; //TODO das hier soll auf LOAD_OP_LOAD stehen, dann is aber blackscreen
-		depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		//depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		//depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 		depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkAttachmentReference colorAttachmentReference;
@@ -730,19 +737,22 @@ void createPipeline() {
 	pipeline.create(device, renderPass, depthPrePass, allSetLayouts);
 }
 
-//hier nächstes mal weiter
 void createPipelineCompute() {
 	VkPushConstantRange pushConstantRange;
 	pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
 	pushConstantRange.offset = 0;
-	pushConstantRange.size = sizeof(VkBool32); //evtl anpassen und eigenes PushConstantObject struct machen
+	pushConstantRange.size = sizeof(PushConstantObject);
 
+	std::vector<VkDescriptorSetLayout> allSetLayoutsForCompute;
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutLightCulling);
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutCamera);
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutIntermediate);
 	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo;
 	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 	pipelineLayoutCreateInfo.pNext = nullptr;
 	pipelineLayoutCreateInfo.flags = 0;
-	pipelineLayoutCreateInfo.setLayoutCount = allSetLayouts.size();
-	pipelineLayoutCreateInfo.pSetLayouts = allSetLayouts.data();
+	pipelineLayoutCreateInfo.setLayoutCount = allSetLayoutsForCompute.size();
+	pipelineLayoutCreateInfo.pSetLayouts = allSetLayoutsForCompute.data();
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 
@@ -777,7 +787,7 @@ void createPipelineCompute() {
 
 void createLightCullingDescriptorSet() {
 	//light visiblity descriptor sets for both passes
-	//create shared dercriptor set between compute pipeline and rendering pipeline
+	//create shared dercriptor set between compute and rendering pipeline
 	VkDescriptorSetAllocateInfo allocateInfo;
 	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	allocateInfo.pNext = nullptr;
@@ -806,7 +816,6 @@ void createLightVisibilityBuffer() {
 		lightVisibilityBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, lightVisibilityBufferMemory); //TODO
 
 	// Write desciptor set in compute shader
-
 	VkDescriptorBufferInfo lightVisibilityBufferInfo;
 	lightVisibilityBufferInfo.buffer = lightVisibilityBuffer;
 	lightVisibilityBufferInfo.offset = 0;
@@ -846,6 +855,102 @@ void createLightVisibilityBuffer() {
 	descriptorWrites.emplace_back(writePointlightDescriptorSet);
 
 	vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+}
+
+void createLightCullingCommandBuffer() {
+	VkCommandBufferAllocateInfo allocateInfo;
+	allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	allocateInfo.pNext = nullptr;
+	allocateInfo.commandPool = commandPoolCompute;
+	allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	allocateInfo.commandBufferCount = 1;
+
+	VkResult result = vkAllocateCommandBuffers(device, &allocateInfo, &lightCullingCommandBuffer);
+	CHECK_FOR_CRASH(result);
+
+	VkCommandBufferBeginInfo beginInfo;
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.pNext = nullptr;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+	beginInfo.pInheritanceInfo = nullptr;
+
+	result = vkBeginCommandBuffer(lightCullingCommandBuffer, &beginInfo);
+	CHECK_FOR_CRASH(result);
+
+	//using barriers, since sharing mode when allocating memory is excklusive
+	std::vector<VkBufferMemoryBarrier> barriersBefore;
+	VkBufferMemoryBarrier lightVisibilityBarrierBefore;
+	lightVisibilityBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	lightVisibilityBarrierBefore.pNext = nullptr;
+	lightVisibilityBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	lightVisibilityBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	lightVisibilityBarrierBefore.srcQueueFamilyIndex = 0; //todo
+	lightVisibilityBarrierBefore.dstQueueFamilyIndex = 2; //todo choose correct queue family index
+	lightVisibilityBarrierBefore.buffer = lightVisibilityBuffer;
+	lightVisibilityBarrierBefore.offset = 0;
+	lightVisibilityBarrierBefore.size = lightVisibilityBufferSize;
+
+	VkBufferMemoryBarrier pointlightBarrierBefore;
+	pointlightBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	pointlightBarrierBefore.pNext = nullptr;
+	pointlightBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	pointlightBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	pointlightBarrierBefore.srcQueueFamilyIndex = 0; //todo
+	pointlightBarrierBefore.dstQueueFamilyIndex = 2; //todo
+	pointlightBarrierBefore.buffer = pointlightBuffer;
+	pointlightBarrierBefore.offset = 0;
+	pointlightBarrierBefore.size = pointlightBufferSize;
+
+	barriersBefore.emplace_back(lightVisibilityBarrierBefore);
+	barriersBefore.emplace_back(pointlightBarrierBefore);
+
+	//barrier
+	vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VkDependencyFlags(), 0,
+		nullptr, barriersBefore.size(), barriersBefore.data(), 0, nullptr);
+	
+	std::array<VkDescriptorSet, 3> allSetsForCompute = {lightCullingDescriptorSet, cameraDescriptorSet, intermediateDescriptorSet};
+
+	vkCmdBindDescriptorSets(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayoutCompute, 0, 
+		allSetsForCompute.size(), allSetsForCompute.data(), 0, nullptr);
+
+	PushConstantObject pco = { static_cast<int> (windowWidth), static_cast<int> (windowHeight), tileCountPerRow, tileCountPerCol };
+	vkCmdPushConstants(lightCullingCommandBuffer, pipelineLayoutCompute, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pco), &pco);
+	vkCmdBindPipeline(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineCompute);
+	vkCmdDispatch(lightCullingCommandBuffer, tileCountPerRow, tileCountPerCol, 1);
+	
+
+
+	std::vector<VkBufferMemoryBarrier> barriersAfter;
+	VkBufferMemoryBarrier lightVisibilityBarrierAfter;
+	lightVisibilityBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	lightVisibilityBarrierAfter.pNext = nullptr;
+	lightVisibilityBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	lightVisibilityBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	lightVisibilityBarrierAfter.srcQueueFamilyIndex = 2; //todo
+	lightVisibilityBarrierAfter.dstQueueFamilyIndex = 0; //todo
+	lightVisibilityBarrierAfter.buffer = lightVisibilityBuffer;
+	lightVisibilityBarrierAfter.offset = 0;
+	lightVisibilityBarrierAfter.size = lightVisibilityBufferSize;
+	
+
+	VkBufferMemoryBarrier pointlightBarrierAfter;
+	pointlightBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	pointlightBarrierAfter.pNext = nullptr;
+	pointlightBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	pointlightBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	pointlightBarrierAfter.srcQueueFamilyIndex = 2; //todo
+	pointlightBarrierAfter.dstQueueFamilyIndex = 0; //todo
+	pointlightBarrierAfter.buffer = pointlightBuffer;
+	pointlightBarrierAfter.offset = 0;
+	pointlightBarrierAfter.size = pointlightBufferSize;
+
+	barriersAfter.emplace_back(lightVisibilityBarrierAfter);
+	barriersAfter.emplace_back(pointlightBarrierAfter);
+
+	vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VkDependencyFlags(), 0,
+		nullptr, barriersAfter.size(), barriersAfter.data(), 0, nullptr);
+
+	vkEndCommandBuffer(lightCullingCommandBuffer);
 }
 
 void createFramebuffers() {
@@ -1234,9 +1339,22 @@ void recordCommandBuffers() {
 		VkClearValue clearValue;
 		clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
 		//VkClearValue depthClearValue = { 1.0f, 0 }; //don't reset with depth prepass!
-
 		renderPassBeginInfo.clearValueCount = 1;
 		renderPassBeginInfo.pClearValues = &clearValue;
+
+		VkViewport viewport;
+		viewport.x = 0.0f;
+		viewport.y = 0.0f;
+		viewport.width = windowWidth;
+		viewport.height = windowHeight;
+		viewport.minDepth = 0.0f;
+		viewport.maxDepth = 1.0f;
+		vkCmdSetViewport(commandBuffers[i], 0, 1, &viewport);
+
+		VkRect2D scissor;
+		scissor.offset = { 0, 0 };
+		scissor.extent = { windowWidth, windowHeight };
+		vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
 
 
 		vkCmdBeginRenderPass(commandBuffers[i], &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE); //nur primäre Buffers nutzen, sonst VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS
@@ -1247,9 +1365,6 @@ void recordCommandBuffers() {
 			tileCountPerRow, tileCountPerCol
 		};
 		vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pco), &pco);
-
-		//VkBool32 usePhong = VK_TRUE;
-		//vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(usePhong), &usePhong);
 
 		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
 		
@@ -1266,23 +1381,46 @@ void recordCommandBuffers() {
 			vkCmdEndRenderPass(commandBuffers[i]);
 		}
 
-		VkViewport viewport;
-		viewport.x = 0.0f;
-		viewport.y = 0.0f;
-		viewport.width = windowWidth;
-		viewport.height = windowHeight;
-		viewport.minDepth = 0.0f;
-		viewport.maxDepth = 1.0f;
-		vkCmdSetViewport(commandBuffers[i], 0, 1, &viewport);
-
-		VkRect2D scissor;
-		scissor.offset = { 0, 0 };
-		scissor.extent = { windowWidth, windowHeight };
-		vkCmdSetScissor(commandBuffers[i], 0, 1, &scissor);
-
 		result = vkEndCommandBuffer(commandBuffers[i]);
 		CHECK_FOR_CRASH(result);
 	}
+}
+
+void updateUniformBuffers(float deltatime) {
+	static auto startTime = std::chrono::high_resolution_clock::now();
+	auto currentTime = std::chrono::high_resolution_clock::now();
+	float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
+
+	//update camera ubo
+	CameraUbo  uboCamera = {};
+	uboCamera.view = viewMatrix;
+	uboCamera.proj = glm::perspective(glm::radians(45.0f), windowWidth / (float)windowHeight, 0.5f, 100.0f);
+	uboCamera.proj[1][1] *= -1; //Y Axis points down in Vulkan
+	uboCamera.projview = uboCamera.proj * uboCamera.view;
+	uboCamera.cameraPos = glm::vec3(0.7f, 0.7f, 0.2f); //todo
+
+	void* data;
+	vkMapMemory(device, cameraStagingBufferMemory, 0, sizeof(CameraUbo), 0, &data);
+	memcpy(data, &uboCamera, sizeof(uboCamera));
+	vkUnmapMemory(device, cameraStagingBufferMemory);
+
+	copyBuffer(device, queue, commandPool, cameraStagingBuffer, cameraUniformBuffer, sizeof(uboCamera), 0, 0);
+	
+
+	//update light ubo
+	auto lightNums = static_cast<int>(pointLights.size());
+	VkDeviceSize bufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
+	for (int i = 0; i < lightNums; i++) {
+		pointLights[i].pos += glm::vec3(0, 3.0f, 0) * deltatime;
+		//todo reset lights if too low
+	}
+	auto pointlightsSize = sizeof(PointLight) * pointLights.size();
+	void* rawData;
+	vkMapMemory(device, lightStagingBufferMemory, 0, pointlightBufferSize, 0, &rawData);
+	memcpy(rawData, &lightNums, sizeof(int));
+	memcpy((char*)rawData + sizeof(glm::vec4), pointLights.data(), pointlightsSize);
+	vkUnmapMemory(device, lightStagingBufferMemory);
+	copyBuffer(device, queue, commandPool, lightStagingBuffer, pointlightBuffer, pointlightBufferSize, 0, 0);
 }
 
 void createSemaphores() {
@@ -1317,7 +1455,6 @@ void startVulkan() {
 	createRenderPass();
 	createDescriptorSetLayout();
 	createPipeline();
-	createPipelineCompute();
 	createCommandPool();
 	createDepthImage();
 	createFramebuffers();
@@ -1330,10 +1467,12 @@ void startVulkan() {
 	createIndexBuffer();
 	createUniformBuffer();
 	createLightCullingDescriptorSet();
-	createLightVisibilityBuffer();
 	createDescriptorSet();
 	createCameraDescriptorSet();
 	createIntermediateDescriptorSet();
+	createLightVisibilityBuffer();
+	createPipelineCompute();
+	createLightCullingCommandBuffer();
 	updateIntermediateDescriptorSet();
 	createDepthPrePassCommandBuffer();
 	recordCommandBuffers();
@@ -1396,39 +1535,35 @@ void drawFrame() {
 	
 
 	//Submit lightculling to compute queue
-	
-	//todo v
 	VkPipelineStageFlags waitStagesLight[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
-	/*VkSubmitInfo submitInfoLightculling;
+	VkSubmitInfo submitInfoLightculling;
 	submitInfoLightculling.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfoLightculling.pNext = nullptr;
 	submitInfoLightculling.waitSemaphoreCount = 1;
 	submitInfoLightculling.pWaitSemaphores = &semaphoreDepthPrepassDone;
 	submitInfoLightculling.pWaitDstStageMask = waitStagesLight;
 	submitInfoLightculling.commandBufferCount = 1;
-	submitInfoLightculling.pCommandBuffers = &lightcullingCommandBuffer; //todo
+	submitInfoLightculling.pCommandBuffers = &lightCullingCommandBuffer;
 	submitInfoLightculling.signalSemaphoreCount = 1;
 	submitInfoLightculling.pSignalSemaphores = &semaphoreLightcullingDone;
 
-	result = vkQueueSubmit(computeQueue, 1, &submitInfoLightculling, VK_NULL_HANDLE);*/
+	result = vkQueueSubmit(computeQueue, 1, &submitInfoLightculling, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
 	
 
-	//Submit Graphics to graphics queue
-	
+	//Submit Graphics to graphics queue	
 	VkPipelineStageFlags waitStagesRender[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
-	VkSemaphore waitSemaphores[] = { semaphoreImageAvailable/*, semaphoreLightcullingDone */}; //todo
+	VkSemaphore waitSemaphores[] = { semaphoreImageAvailable, semaphoreLightcullingDone }; 
 	VkSubmitInfo submitInfoRender;
 	submitInfoRender.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfoRender.pNext = nullptr;
-	submitInfoRender.waitSemaphoreCount = 1; //todo 2
+	submitInfoRender.waitSemaphoreCount = 2; //todo 2
 	submitInfoRender.pWaitSemaphores = waitSemaphores;
 	submitInfoRender.pWaitDstStageMask = waitStagesRender;
 	submitInfoRender.commandBufferCount = 1;
 	submitInfoRender.pCommandBuffers = &(commandBuffers[imageIndex]);
 	submitInfoRender.signalSemaphoreCount = 1;
 	submitInfoRender.pSignalSemaphores = &semaphoreRenderingDone;
-
 	result = vkQueueSubmit(queue, 1, &submitInfoRender, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
 
@@ -1446,31 +1581,31 @@ void drawFrame() {
 	CHECK_FOR_CRASH(result);
 }
 
+void requestDraw(float deltatime) {
+	updateUniformBuffers(deltatime);
+	drawFrame();
+}
 
-void updateMVP() {
-	static auto gameStartTime = std::chrono::high_resolution_clock::now();
-	auto frameTime = std::chrono::high_resolution_clock::now();
-	float timeSinceStart = std::chrono::duration_cast<std::chrono::milliseconds>(frameTime - gameStartTime).count() / 1000.0f; //Zeit seit Start des Programms in sec
-	
+void updateMVP(float timeSinceStart) {	
 	//glm::vec3 offset = glm::vec3(timeSinceStart * 1.0f, 0.0f, 0.0f);
 	glm::vec3 offset = glm::vec3(0.0f);
 
-	glm::mat4 model = glm::mat4(1.0f);
+	modelMatrix = glm::mat4(1.0f);
 	//Translate -> Scale -> Rotate
-	model = glm::translate(model, glm::vec3(0, 0, 0));
-	model = glm::translate(model, offset);
-	model = glm::scale(model, glm::vec3(0.1f));
-	model = glm::rotate(model, timeSinceStart * glm::radians(30.0f), glm::vec3(0.1f, 0, 1.0f));
+	modelMatrix = glm::translate(modelMatrix, glm::vec3(0, 0, 0));
+	modelMatrix = glm::translate(modelMatrix, offset);
+	modelMatrix = glm::scale(modelMatrix, glm::vec3(0.1f));
+	modelMatrix = glm::rotate(modelMatrix, timeSinceStart * glm::radians(30.0f), glm::vec3(0.1f, 0, 1.0f));
 
-	glm::mat4 view = glm::lookAt(glm::vec3(0.7f, 0.7f, 0.2f) + offset, glm::vec3(0.0f, 0.0f, 0.0f) + offset, glm::vec3(0, 0, 1.0f));
-	glm::mat4 projection = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
+	viewMatrix = glm::lookAt(glm::vec3(0.7f, 0.7f, 0.2f) + offset, glm::vec3(0.0f, 0.0f, 0.0f) + offset, glm::vec3(0, 0, 1.0f));
+	projMatrix = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
 
-	projection[1][1] *= -1; //Umdrehen der Y Achse, da y Achse in OpenGL nach oben, in Vulkan nach unten
+	projMatrix[1][1] *= -1; //Umdrehen der Y Achse, da y Achse in OpenGL nach oben, in Vulkan nach unten
 
 	ubo.lightPosition = glm::vec4(offset, 0.0f) + glm::rotate(glm::mat4(1.0f), timeSinceStart * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec4(0, 3, 1, 0);
-	ubo.model = model;
-	ubo.view = view;
-	ubo.projection = projection;
+	ubo.model = modelMatrix;
+	ubo.view = viewMatrix;
+	ubo.projection = projMatrix;
 
 	void* data;
 	vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
@@ -1479,12 +1614,18 @@ void updateMVP() {
 }
 
 void mainLoop() {
+	static auto gameStartTime = std::chrono::high_resolution_clock::now();
+	auto previous = std::chrono::high_resolution_clock::now();
+	decltype(previous) current;
+	float timeSinceStart;
+
+	viewMatrix = glm::lookAt(glm::vec3(0.7f, 0.7f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0, 0, 1.0f));
 	while (!glfwWindowShouldClose(window)) {
+		current = std::chrono::high_resolution_clock::now();
+		timeSinceStart = std::chrono::duration<float>(current - previous).count();
 		glfwPollEvents();
-
-		updateMVP();
-
-		drawFrame();
+		updateMVP(timeSinceStart);
+		requestDraw(timeSinceStart);
 	}
 }
 
@@ -1524,6 +1665,8 @@ void shutdownVulkan() {
 
 	vkDestroySemaphore(device, semaphoreImageAvailable, nullptr);
 	vkDestroySemaphore(device, semaphoreRenderingDone, nullptr);
+	vkDestroySemaphore(device, semaphoreLightcullingDone, nullptr);
+	vkDestroySemaphore(device, semaphoreDepthPrepassDone, nullptr);
 
 	vkFreeCommandBuffers(device, commandPool, amountOfImagesInSwapchain, commandBuffers);
 	delete[] commandBuffers;
