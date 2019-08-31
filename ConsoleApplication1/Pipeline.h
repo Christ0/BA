@@ -77,7 +77,6 @@ public:
 		viewport.height = windowHeight;
 		viewport.minDepth = 0.0f;
 		viewport.maxDepth = 1.0f;
-		
 		scissor.offset = { 0, 0 };
 		scissor.extent = { windowWidth, windowHeight };
 		
@@ -112,7 +111,9 @@ public:
 		multisampleCreateInfo.pSampleMask = nullptr;
 		multisampleCreateInfo.alphaToCoverageEnable = VK_FALSE;
 		multisampleCreateInfo.alphaToOneEnable = VK_FALSE;
-		
+
+		// no depthStencilStateCreateInfo, get in from DepthImage
+
 		colorBlendAttachment.blendEnable = VK_TRUE;
 		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 		colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
@@ -214,8 +215,8 @@ public:
 
 
 
-		depthSetLayout = { descriptorSetLayout.at(0), descriptorSetLayout.at(2) }; // 0 und 2 sind die Layouts für das allgemeine 
-																	   // und das für die Kamera, siehe allSetLayouts in main.cpp createDescriptorSetLayout()
+		depthSetLayout = { descriptorSetLayout.at(0), descriptorSetLayout.at(2) }; // 0 and 2 are the layouts for the main one
+																	   // and the one for the camera, check allSetLayouts in main.cpp createDescriptorSetLayout()
 		
 		VkPipelineLayoutCreateInfo depthPipelineLayoutInfo;
 		depthPipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
