@@ -560,8 +560,8 @@ void createRenderPass() {
 		//depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		//depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+		//depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 		depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		VkAttachmentReference colorAttachmentReference;
@@ -665,7 +665,7 @@ void createDescriptorSetLayout() {
 
 	VkDescriptorSetLayoutBinding uniformBufferForPointLights;
 	uniformBufferForPointLights.binding = 1;
-	uniformBufferForPointLights.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; //TODO evtl zurück zu STORAGE_BUFFER
+	uniformBufferForPointLights.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	uniformBufferForPointLights.descriptorCount = 1;
 	uniformBufferForPointLights.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	uniformBufferForPointLights.pImmutableSamplers;
@@ -686,7 +686,7 @@ void createDescriptorSetLayout() {
 
 	VkDescriptorSetLayoutBinding cameraLayoutBinding;
 	cameraLayoutBinding.binding = 0;
-	cameraLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; //TODO evtl zurück zu STORAGE_BUFFER
+	cameraLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	cameraLayoutBinding.descriptorCount = 1;
 	cameraLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
 	cameraLayoutBinding.pImmutableSamplers = nullptr;
@@ -889,7 +889,7 @@ void createLightVisibilityBuffer() {
 	writePointlightDescriptorSet.dstBinding = 1;
 	writePointlightDescriptorSet.dstArrayElement = 0;
 	writePointlightDescriptorSet.descriptorCount = 1;
-	writePointlightDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; //TODO evtl uniform
+	writePointlightDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; //TODO evtl uniform
 	writePointlightDescriptorSet.pImageInfo = nullptr;
 	writePointlightDescriptorSet.pBufferInfo = &pointLightBufferInfo;
 	writePointlightDescriptorSet.pTexelBufferView = nullptr;
@@ -898,6 +898,8 @@ void createLightVisibilityBuffer() {
 	descriptorWrites.emplace_back(writePointlightDescriptorSet);
 
 	vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+	//vkUpdateDescriptorSets(device, 1, &writeLightVisibilityDescriptorSet, 0, nullptr);
+	//vkUpdateDescriptorSets(device, 1, &writePointlightDescriptorSet, 0, nullptr);
 }
 
 void createLightCullingCommandBuffer() {
@@ -1074,7 +1076,7 @@ void createUniformBuffer() {
 	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,	//TODO 0
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraStagingBufferMemory);
 
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, cameraUniformBuffer, //TODO 0
+	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cameraUniformBuffer, //TODO 0
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, cameraUniformBufferMemory);
 }
 
@@ -1090,7 +1092,7 @@ void createLights() {
 	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, lightStagingBuffer,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, lightStagingBufferMemory);
 
-	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
+	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory); //TODO physDev[0] und vll storage zu uniform
 }
 
@@ -1219,7 +1221,7 @@ void createCameraDescriptorSet() {
 	descriptorWrite.dstBinding = 0;
 	descriptorWrite.dstArrayElement = 0;
 	descriptorWrite.descriptorCount = 1;
-	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER; //TODO maybe storage?
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; //TODO maybe storage?
 	descriptorWrite.pImageInfo = nullptr;
 	descriptorWrite.pBufferInfo = &descriptorBufferInfo;
 	descriptorWrite.pTexelBufferView = nullptr;
@@ -1243,7 +1245,7 @@ void updateIntermediateDescriptorSet() {
 	VkDescriptorImageInfo depthImageInfo;
 	depthImageInfo.sampler = ezImage.getSampler();
 	depthImageInfo.imageView = depthImage.getImageView();
-	depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL; //VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; TODO==========================
 
 	VkWriteDescriptorSet descriptorWrite;
 	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

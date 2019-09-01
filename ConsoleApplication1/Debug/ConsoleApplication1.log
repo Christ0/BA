@@ -1,10 +1,10 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2017\Enterprise\Common7\IDE\VC\VCTargets\Microsoft.CppBuild.targets(391,5): warning MSB8028: Das Zwischenverzeichnis (Debug\) enthält freigegebene Dateien aus einem anderen Projekt (ConsoleApplication1.vcxproj). Dies kann zu einem falschen Bereinigungs- und Neuerstellungsverhalten führen.
   shader.vert
-EXEC : warning : shader.vert:3: '#extension' : extension not supported: GL_KHR_vulkan_glsl
-  
   depth.vert
   shader.frag
   shader.comp
+EXEC : warning : shader.comp:3: '#extension' : extension not supported: GL_KHR_vulkan_glsl
+  
   main.cpp
 c:\program files (x86)\windows kits\10\include\10.0.17763.0\shared\minwindef.h(130): warning C4005: "APIENTRY": Makro-Neudefinition
   c:\users\chris\source\repos\consoleapplication1\glfw-3.2.1.bin.win32\include\glfw\glfw3.h(98): note: Siehe vorherige Definition von "APIENTRY"
@@ -21,12 +21,12 @@ c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(273
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(274): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(275): warning C4018: ">": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(276): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1354): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1355): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1503): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
-c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1701): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1356): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1357): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1505): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1703): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
 c:\users\chris\source\repos\consoleapplication1\consoleapplication1\vulkanutils.h(223): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
-  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1048): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1050): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void createAndUploadBuffer<Vertex>(VkDevice,VkPhysicalDevice,VkQueue,VkCommandPool,std::vector<Vertex,std::allocator<_Ty>>,VkBufferUsageFlags,VkBuffer &,VkDeviceMemory &)".
           with
           [
               _Ty=Vertex
@@ -55,7 +55,7 @@ c:\program files (x86)\microsoft visual studio\2017\enterprise\vc\tools\msvc\14.
           [
               _Ty=PointLight
           ]
-  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1086): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::emplace_back<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
+  c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1088): note: Siehe Verweis auf die Instanziierung der gerade kompilierten Funktions-Vorlage "void std::vector<PointLight,std::allocator<_Ty>>::emplace_back<glm::vec<3,float,0>,int,glm::vec3&>(glm::vec<3,float,0> &&,int &&,glm::vec3 &)".
           with
           [
               _Ty=PointLight

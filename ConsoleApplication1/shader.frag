@@ -50,9 +50,9 @@ vec4 phong(){
 	vec3 diffuse = max(dot(N, L), 0.0) * fragColor;
 	vec3 specular = pow(max(dot(R, V), 0.0), 16.0) * vec3(1.35f) ;
 
-	return vec4(N + specular, 1.0);
+	//return vec4(N + specular, 1.0);
 
-	//return vec4(ambient + diffuse + specular, 1.0);
+	return vec4(ambient + diffuse + specular, 1.0);
 }
 
 vec4 cartoon(){
