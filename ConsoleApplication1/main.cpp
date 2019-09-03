@@ -132,6 +132,16 @@ struct CameraUbo {
 	glm::vec3 cameraPos;
 };
 
+struct SceneConfiguration {
+	float scale;
+	glm::vec3 minLightPos;
+	glm::vec3 maxLightPos;
+	float lightRadius;
+	int lightNum;
+	glm::vec3 cameraPosition;
+	glm::quat cameraRotation;
+};
+
 UniformBufferObject ubo;
 glm::mat4 modelMatrix;
 glm::mat4 viewMatrix;
@@ -153,6 +163,7 @@ VkDescriptorPool descriptorPool;
 
 EasyImage ezImage;
 DepthImage depthImage;
+SceneConfiguration sceneConfiguration;
 
 Mesh dragonMesh;
 
@@ -291,6 +302,19 @@ void startGLFW() {
 	window = glfwCreateWindow(windowWidth, windowHeight, "VulkanRenderer", 0, nullptr);
 	glfwSetWindowSizeCallback(window, onWindowResized);
 }
+
+void setSceneConfiguration() {
+	sceneConfiguration = {
+		0.10f,									//scale
+		glm::vec3{-20, -5, -20},				//minLightPos
+		glm::vec3{20, 20, 20 },					//maxLightPos
+		5.0f,									//radius
+		2000,									//lightNum
+		glm::vec3{31, 27, 36},					//camera Position
+		glm::quat{0.8f, -2.9f, 0.34f, 0.11f}	//camera Rotation
+	};
+}
+
 
 
 void createInstance() {
@@ -1063,8 +1087,7 @@ void createUniformBuffer() {
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT /*VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/, uniformBufferMemory);
 	
 
-
-	//ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(1.0));
+	ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(sceneConfiguration.scale));
 	void* data;
 	vkMapMemory(device, stagingBufferMemory, 0, sizeof(ubo), 0, &data);
 	memcpy(data, &ubo, sizeof(ubo));
@@ -1085,7 +1108,8 @@ void createLights() {
 		glm::vec3 color;
 		do { color = { glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)) }; } 
 		while (color.length() < 0.8f);
-		pointLights.emplace_back(glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)), 5, color); //emplace_back(minLightPos, maxLightPos, lightRadius, color)
+		//emplace_back(minLightPos, maxLightPos, lightRadius, color)
+		pointLights.emplace_back(glm::linearRand(sceneConfiguration.minLightPos, sceneConfiguration.maxLightPos), sceneConfiguration.lightRadius, color); 
 	}
 
 	pointlightBufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
@@ -1419,10 +1443,15 @@ void updateUniformBuffers(float deltatime) {
 	//update light ubo
 	auto lightNums = static_cast<int>(pointLights.size());
 	VkDeviceSize bufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
+
 	for (int i = 0; i < lightNums; i++) {
 		pointLights[i].pos += glm::vec3(0, 3.0f, 0) * deltatime;
-		//todo reset lights if Y is too low
+		//reset lights if Y is too low
+		if (pointLights[i].pos.y > sceneConfiguration.maxLightPos.y) {
+			pointLights[i].pos.y -= (sceneConfiguration.maxLightPos.y - sceneConfiguration.minLightPos.y);
+		}
 	}
+
 	auto pointlightsSize = sizeof(PointLight) * pointLights.size();
 	void* rawData;
 	vkMapMemory(device, lightStagingBufferMemory, 0, pointlightBufferSize, 0, &rawData);
@@ -1450,6 +1479,7 @@ void createSemaphores() {
 
 
 void startVulkan() {
+	setSceneConfiguration();
 	createInstance();
 	physicalDevices = getAllPhysicalDevices();
 	printInstanceLayers();
@@ -1605,8 +1635,8 @@ void updateMVP(float timeSinceStart) {
 
 	modelMatrix = glm::mat4(1.0f);
 	//Translate -> Scale -> Rotate
-	modelMatrix = glm::translate(modelMatrix, glm::vec3(0, 0, 0));
-	modelMatrix = glm::translate(modelMatrix, offset);
+	//modelMatrix = glm::translate(modelMatrix, glm::vec3(0, 0, 0));
+	//modelMatrix = glm::translate(modelMatrix, offset);
 	modelMatrix = glm::scale(modelMatrix, glm::vec3(0.1f));
 	modelMatrix = glm::rotate(modelMatrix, timeSinceStart * glm::radians(30.0f), glm::vec3(0.1f, 0, 1.0f));
 
