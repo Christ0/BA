@@ -27,6 +27,11 @@ int tileCountPerCol = 0;
 int graphicsQueueIndex = 0;
 int computeQueueIndex = 0;
 
+bool wDown = false;
+bool aDown = false;
+bool sDown = false;
+bool dDown = false;
+
 VkInstance instance;
 std::vector<VkPhysicalDevice> physicalDevices;
 VkSurfaceKHR surface;
@@ -120,8 +125,6 @@ const VkFormat imageFormat = VK_FORMAT_B8G8R8A8_UNORM; //TODO CIV
 
 struct UniformBufferObject {
 	glm::mat4 model;
-	glm::mat4 view;
-	glm::mat4 projection;
 	glm::vec3 lightPosition;
 };
 
@@ -143,6 +146,7 @@ struct SceneConfiguration {
 };
 
 UniformBufferObject ubo;
+CameraUbo cameraUbo;
 glm::mat4 modelMatrix;
 glm::mat4 viewMatrix;
 glm::mat4 projMatrix;
@@ -184,7 +188,7 @@ void printStats(VkPhysicalDevice &device) {
 	std::cout << "Device ID:               " << properties.deviceID << std::endl;
 	std::cout << "Device Type:             " << properties.deviceType << std::endl; 
 	std::cout << "DiscreteQueuePriorities: " << properties.limits.discreteQueuePriorities << std::endl;
-
+	std::cout << "Max Clip Distances: "		 << properties.limits.maxClipDistances << std::endl;
 	//Was kann die GPU alles
 	VkPhysicalDeviceFeatures features = { };
 	vkGetPhysicalDeviceFeatures(device, &features);
@@ -303,14 +307,16 @@ void startGLFW() {
 	glfwSetWindowSizeCallback(window, onWindowResized);
 }
 
+float tempScale = 1.0f;
+
 void setSceneConfiguration() {
 	sceneConfiguration = {
-		0.10f,									//scale
-		glm::vec3{-20, -5, -20},				//minLightPos
-		glm::vec3{20, 20, 20 },					//maxLightPos
+		0.5f,									//scale
+		glm::vec3{-20 * tempScale, -5 * tempScale, -20 * tempScale}, 				//minLightPos
+		glm::vec3{20 * tempScale, 20 * tempScale, 20 * tempScale},					//maxLightPos
 		5.0f,									//radius
 		2000,									//lightNum
-		glm::vec3{31, 27, 36},					//camera Position
+		glm::vec3{0.7f, 0.7f, 0.2f},			//camera Position
 		glm::quat{0.8f, -2.9f, 0.34f, 0.11f}	//camera Rotation
 	};
 }
@@ -438,6 +444,9 @@ void createLogicalDevice() {
 
 	VkPhysicalDeviceFeatures usedFeatures = {};
 	usedFeatures.samplerAnisotropy = VK_TRUE;
+	usedFeatures.vertexPipelineStoresAndAtomics = VK_TRUE;
+	usedFeatures.fragmentStoresAndAtomics = VK_TRUE;
+
 
 	const std::vector<const char*> deviceExtensions = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -1065,7 +1074,7 @@ void loadTexture() {
 }
 
 void loadMesh() {
-	dragonMesh.loadModelFromFile(device, physicalDevices[0], queue, commandPool, "meshes/cube.obj", descriptorPool); //TODO
+	dragonMesh.loadModelFromFile(device, physicalDevices[0], queue, commandPool, "meshes/dragon.obj", descriptorPool); //TODO
 	vertices = dragonMesh.getVertices();
 	indices = dragonMesh.getIndices();
 }
@@ -1084,7 +1093,7 @@ void createUniformBuffer() {
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBufferMemory);
 
 	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer, //TODO 0
-		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT /*VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT*/, uniformBufferMemory);
+		/*VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/ VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, uniformBufferMemory);
 	
 
 	ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(sceneConfiguration.scale));
@@ -1424,28 +1433,41 @@ void updateUniformBuffers(float deltatime) {
 	auto currentTime = std::chrono::high_resolution_clock::now();
 	float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
 
+	
+	ubo.lightPosition = glm::vec4(0.0f) + glm::rotate(glm::mat4(1.0f), deltatime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec4(0, 3, 1, 0);
+	modelMatrix = glm::mat4(1.0f);
+	modelMatrix = glm::scale(modelMatrix, glm::vec3(sceneConfiguration.scale));
+	modelMatrix = glm::rotate(modelMatrix, deltatime * glm::radians(30.0f), glm::vec3(0, 0, 1.0f));
+	ubo.model = modelMatrix;
+
 	//update camera ubo
-	CameraUbo  uboCamera = {};
-	uboCamera.view = viewMatrix;
-	uboCamera.proj = glm::perspective(glm::radians(45.0f), windowWidth / (float)windowHeight, 0.5f, 100.0f);
-	uboCamera.proj[1][1] *= -1; //Y Axis points down in Vulkan
-	uboCamera.projview = uboCamera.proj * uboCamera.view;
-	uboCamera.cameraPos = glm::vec3(0.7f, 0.7f, 0.2f); //todo
+	viewMatrix = glm::lookAt(glm::vec3(0.7f, 7.0f, 5.0f), glm::vec3(0.0f, -2.0f, 0.0f), glm::vec3(0, 0, 1.0f));
+	cameraUbo.view = viewMatrix;
+	cameraUbo.proj = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
+	cameraUbo.proj[1][1] *= -1; //Y Axis points down in Vulkan
+	cameraUbo.projview = cameraUbo.proj * cameraUbo.view;
+	cameraUbo.cameraPos = sceneConfiguration.cameraPosition;
 
 	void* data;
-	vkMapMemory(device, cameraStagingBufferMemory, 0, sizeof(CameraUbo), 0, &data);
-	memcpy(data, &uboCamera, sizeof(uboCamera));
-	vkUnmapMemory(device, cameraStagingBufferMemory);
+	vkMapMemory(device, stagingBufferMemory, 0, sizeof(ubo), 0, &data);
+	memcpy(data, &ubo, sizeof(ubo));
+	vkUnmapMemory(device, stagingBufferMemory);
+	copyBuffer(device, queue, commandPool, stagingBuffer, uniformBuffer, sizeof(ubo), 0, 0);
 
-	copyBuffer(device, queue, commandPool, cameraStagingBuffer, cameraUniformBuffer, sizeof(uboCamera), 0, 0);
+	void* cameraData;
+	vkMapMemory(device, cameraStagingBufferMemory, 0, sizeof(CameraUbo), 0, &cameraData);
+	memcpy(cameraData, &cameraUbo, sizeof(cameraUbo));
+	vkUnmapMemory(device, cameraStagingBufferMemory);
+	copyBuffer(device, queue, commandPool, cameraStagingBuffer, cameraUniformBuffer, sizeof(cameraUbo), 0, 0);
 	
+
 
 	//update light ubo
 	auto lightNums = static_cast<int>(pointLights.size());
 	VkDeviceSize bufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
 
 	for (int i = 0; i < lightNums; i++) {
-		pointLights[i].pos += glm::vec3(0, 3.0f, 0) * deltatime;
+		pointLights[i].pos += glm::vec3(0, 0.03f, 0) * deltatime;
 		//reset lights if Y is too low
 		if (pointLights[i].pos.y > sceneConfiguration.maxLightPos.y) {
 			pointLights[i].pos.y -= (sceneConfiguration.maxLightPos.y - sceneConfiguration.minLightPos.y);
@@ -1629,33 +1651,6 @@ void requestDraw(float deltatime) {
 	drawFrame();
 }
 
-void updateMVP(float timeSinceStart) {	
-	//glm::vec3 offset = glm::vec3(timeSinceStart * 1.0f, 0.0f, 0.0f);
-	glm::vec3 offset = glm::vec3(0.0f);
-
-	modelMatrix = glm::mat4(1.0f);
-	//Translate -> Scale -> Rotate
-	//modelMatrix = glm::translate(modelMatrix, glm::vec3(0, 0, 0));
-	//modelMatrix = glm::translate(modelMatrix, offset);
-	modelMatrix = glm::scale(modelMatrix, glm::vec3(0.1f));
-	modelMatrix = glm::rotate(modelMatrix, timeSinceStart * glm::radians(30.0f), glm::vec3(0.1f, 0, 1.0f));
-
-	viewMatrix = glm::lookAt(glm::vec3(0.7f, 0.7f, 0.2f) + offset, glm::vec3(0.0f, 0.0f, 0.0f) + offset, glm::vec3(0, 0, 1.0f));
-	projMatrix = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
-
-	projMatrix[1][1] *= -1; //Umdrehen der Y Achse, da y Achse in OpenGL nach oben, in Vulkan nach unten
-
-	ubo.lightPosition = glm::vec4(offset, 0.0f) + glm::rotate(glm::mat4(1.0f), timeSinceStart * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec4(0, 3, 1, 0);
-	ubo.model = modelMatrix;
-	ubo.view = viewMatrix;
-	ubo.projection = projMatrix;
-
-	void* data;
-	vkMapMemory(device, uniformBufferMemory, 0, sizeof(ubo), 0, &data);
-	memcpy(data, &ubo, sizeof(ubo));
-	vkUnmapMemory(device, uniformBufferMemory);
-}
-
 void mainLoop() {
 	static auto gameStartTime = std::chrono::high_resolution_clock::now();
 	auto previous = std::chrono::high_resolution_clock::now();
@@ -1667,7 +1662,6 @@ void mainLoop() {
 		current = std::chrono::high_resolution_clock::now();
 		timeSinceStart = std::chrono::duration<float>(current - previous).count();
 		glfwPollEvents();
-		updateMVP(timeSinceStart);
 		requestDraw(timeSinceStart);
 	}
 }

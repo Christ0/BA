@@ -1,36 +1,104 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
+#extension GL_KHR_vulkan_glsl : enable
+
+const int TILE_SIZE = 16;
+
+struct PointLight{
+	vec3 pos;
+	float radius;
+	vec3 intensity;
+};
+
+#define MAX_POINT_LIGHT_PER_TILE 1023
+struct LightVisiblity{
+	uint count;
+	uint lightindices[MAX_POINT_LIGHT_PER_TILE];
+};
+
+layout(push_constant) uniform PushConstantObject{
+	ivec2 viewport_size;
+	ivec2 tile_nums;
+} pushConstants;
+
+layout(std140, set = 0, binding = 0) uniform UniformBufferObject{
+    mat4 model;
+	vec3 lightPosition;
+} transform;
+
+layout(std140, set = 2, binding = 0) buffer CameraUbo{
+    mat4 view;
+    mat4 proj;
+    mat4 projview;
+    vec3 cameraPosition;
+} ubo;
+
+layout(std430, set = 1, binding = 0) readonly buffer TileLightVisiblities{
+    LightVisiblity lightVisiblities[];
+};
+
+layout(std140, set = 1, binding = 1) readonly buffer PointLights{ // FIXME: change back to uniform // readonly buffer PointLights
+	int lightNum;
+	PointLight pointlights[2000];
+};
+
+layout(set = 3, binding = 0) uniform sampler2D depth_sampler;
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragUVCoord;
 layout(location = 2) in vec3 fragNormal;
-layout(location = 3) in vec3 fragViewVec;
-layout(location = 4) in vec3 fragLightVec;
+layout(location = 3) in vec3 fragWorldPos;
+layout(location = 4) in vec3 fragViewVec;
+layout(location = 5) in vec3 fragLightVec;
 
 layout(location = 0) out vec4 outColor;
 
 layout(binding = 1) uniform sampler2D tex;
 
+layout(early_fragment_tests) in;
+
 //layout(push_constant) uniform PushConstants{
 //	bool usePhong;
 //} pushConts;
-
-layout(push_constant) uniform PushConstantObject
-{
-	ivec2 viewport_size;
-	ivec2 tile_nums;
-    int debugview_index;
-} push_constants;
 
 vec4 phong();
 vec4 cartoon();
 
 void main(){
+	ivec2 tileID = ivec2(gl_FragCoord.xy / TILE_SIZE);
+	uint tileIndex = tileID.y * pushConstants.tile_nums.x + tileID.x;
+
+	vec3 illuminance = vec3 (0.0);
+	uint tileLightNum = lightVisiblities[tileIndex].count;
+
+	for(int i = 0; i < tileLightNum; i++){
+		PointLight light = pointlights[lightVisiblities[tileIndex].lightindices[i]];
+		vec3 lightDirection = normalize(light.pos - fragWorldPos);
+		float lambertian = max(dot(lightDirection, fragNormal), 0.0);
+
+		if(lambertian > 0.0){
+			float lightDistance = distance(light.pos, fragWorldPos);
+            if (lightDistance > light.radius){
+                continue;
+            }
+			vec3 viewDir = normalize(ubo.cameraPosition - fragWorldPos);
+            vec3 halfDir = normalize(lightDirection + viewDir);
+            float specAngle = max(dot(halfDir, fragNormal), 0.0);
+            float specular = pow(specAngle, 32.0);
+
+            float att = clamp(1.0 - lightDistance * lightDistance / (light.radius * light.radius), 0.0, 1.0);
+            illuminance += light.intensity * att * (lambertian);
+			//illuminance = vec3(0.5);
+		}
+	}
+	outColor = vec4(illuminance, 1.0);
+	//outColor = phong();
+
 	//outColor = vec4(fragColor, 1.0);
 	//outColor = texture(tex, fragUVCoord);
 
 
-	outColor = phong();
+	
 	
 	//float val = dot(N, V);
 	//outColor = vec4(val, val, val, 1.0);
