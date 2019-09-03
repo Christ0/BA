@@ -33,7 +33,8 @@ bool sDown = false;
 bool dDown = false;
 
 VkInstance instance;
-std::vector<VkPhysicalDevice> physicalDevices;
+std::vector<VkPhysicalDevice> allPhysicalDevices;
+VkPhysicalDevice physicalDevice = nullptr;
 VkSurfaceKHR surface;
 VkDevice device;
 VkSwapchainKHR swapchain = VK_NULL_HANDLE;
@@ -283,7 +284,7 @@ void recreateSwapchain();
 
 void onWindowResized(GLFWwindow *window, int width, int height) {
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevices[0], surface, &surfaceCapabilities);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
 
 	if (width > surfaceCapabilities.maxImageExtent.width) width = surfaceCapabilities.maxImageExtent.width;
 	if (width < surfaceCapabilities.minImageExtent.width) width = surfaceCapabilities.minImageExtent.width;
@@ -399,22 +400,40 @@ void createGlfwWindowSurface() {
 	CHECK_FOR_CRASH(result);
 }
 
-std::vector<VkPhysicalDevice> getAllPhysicalDevices() {
+void pickPhysicalDevice() {
 	uint32_t amountOfPhysicalDevices = 0;
 	VkResult result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, nullptr);
 	CHECK_FOR_CRASH(result);
 
-	std::vector<VkPhysicalDevice> physicalDevices;
-	physicalDevices.resize(amountOfPhysicalDevices);
+	allPhysicalDevices.resize(amountOfPhysicalDevices);
+	if (allPhysicalDevices.size() == 0) {
+		throw std::runtime_error("Could not find a device with vulkan support!");
+	}
 
-	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, physicalDevices.data());
+	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, allPhysicalDevices.data());
 	CHECK_FOR_CRASH(result);
-	return physicalDevices;
+
+	for (int i = 0; i < amountOfPhysicalDevices; i++) {
+		uint32_t amountOfQueueFamilies = 0;
+		vkGetPhysicalDeviceQueueFamilyProperties(allPhysicalDevices[i], &amountOfQueueFamilies, nullptr);
+		VkQueueFamilyProperties * familyProperties = new VkQueueFamilyProperties[amountOfQueueFamilies];
+		vkGetPhysicalDeviceQueueFamilyProperties(allPhysicalDevices[i], &amountOfQueueFamilies, familyProperties);
+
+		if (((familyProperties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) != 0) &&
+			((familyProperties[i].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0) &&
+			((familyProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) != 0)) {
+			physicalDevice = allPhysicalDevices[i];
+			break;
+		}
+	}
+	if (physicalDevice == nullptr) {
+		throw std::runtime_error("Could not find a device with suiting Queue Support!");
+	}
 }
 
-void printPhysicalDevicesStats() {
-	for (uint32_t i = 0; i < physicalDevices.size(); i++) {
-		printStats(physicalDevices[i]);
+void printallPhysicalDevicesStats() {
+	for (uint32_t i = 0; i < allPhysicalDevices.size(); i++) {
+		printStats(allPhysicalDevices[i]);
 	}
 }
 
@@ -447,7 +466,6 @@ void createLogicalDevice() {
 	usedFeatures.vertexPipelineStoresAndAtomics = VK_TRUE;
 	usedFeatures.fragmentStoresAndAtomics = VK_TRUE;
 
-
 	const std::vector<const char*> deviceExtensions = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
 
@@ -466,7 +484,7 @@ void createLogicalDevice() {
 	deviceCreateInfo.pEnabledFeatures = &usedFeatures;
 
 
-	VkResult result = vkCreateDevice(physicalDevices[0], &deviceCreateInfo, nullptr, &device); //TODO Nimm "bestes device"
+	VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device); //TODO Nimm "bestes device"
 	CHECK_FOR_CRASH(result);
 }
 
@@ -477,7 +495,7 @@ void createQueue() {
 
 void checkSurfaceSupport() {
 	VkBool32 surfaceSupport = false;
-	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[0], 0, surface, &surfaceSupport); //TODO CIV
+	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, 0, surface, &surfaceSupport); //TODO CIV
 	CHECK_FOR_CRASH(result);
 
 	if (!surfaceSupport) {
@@ -527,7 +545,7 @@ void createImageViews() {
 void createRenderPass() {
 	//Depth PrePass
 	{
-		VkAttachmentDescription depthAttachment = DepthImage::getDepthAttachment(physicalDevices[0]); //TODO 0
+		VkAttachmentDescription depthAttachment = DepthImage::getDepthAttachment(physicalDevice); //TODO 0
 
 		VkAttachmentReference depthAttachmentReference;
 		depthAttachmentReference.attachment = 0;
@@ -586,7 +604,7 @@ void createRenderPass() {
 
 		VkAttachmentDescription depthAttachmentDescription;
 		depthAttachmentDescription.flags = 0;
-		depthAttachmentDescription.format = DepthImage::findDepthFormat(physicalDevices[0]); //TODO 0
+		depthAttachmentDescription.format = DepthImage::findDepthFormat(physicalDevice); //TODO 0
 		depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
 		depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
 		depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -888,7 +906,7 @@ void createLightVisibilityBuffer() {
 
 	lightVisibilityBufferSize = sizeof(_Dummy_VisibleLightsForTile) * tileCountPerRow * tileCountPerCol;
 
-	createBuffer(device, physicalDevices[0], lightVisibilityBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+	createBuffer(device, physicalDevice, lightVisibilityBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		lightVisibilityBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, lightVisibilityBufferMemory); //TODO
 
 	// Write desciptor set in compute shader
@@ -1032,7 +1050,7 @@ void createLightCullingCommandBuffer() {
 }
 
 void createDepthImage() { //aka Z-Buffer
-	depthImage.create(device, physicalDevices[0], commandPool, queue, windowWidth, windowHeight);
+	depthImage.create(device, physicalDevice, commandPool, queue, windowWidth, windowHeight);
 }
 
 void createCommandPool() {
@@ -1070,29 +1088,29 @@ void createCommandBuffers() {
 
 void loadTexture() {
 	ezImage.load("../blank.jpg");
-	ezImage.upload(device, physicalDevices[0], commandPool, queue);
+	ezImage.upload(device, physicalDevice, commandPool, queue);
 }
 
 void loadMesh() {
-	dragonMesh.loadModelFromFile(device, physicalDevices[0], queue, commandPool, "meshes/dragon.obj", descriptorPool); //TODO
+	dragonMesh.loadModelFromFile(device, physicalDevice, queue, commandPool, "meshes/dragon.obj", descriptorPool); //TODO
 	vertices = dragonMesh.getVertices();
 	indices = dragonMesh.getIndices();
 }
 
 void createVertexBuffer() {
-	createAndUploadBuffer(device, physicalDevices[0], queue, commandPool, vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer, vertexBufferDeviceMemory);
+	createAndUploadBuffer(device, physicalDevice, queue, commandPool, vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer, vertexBufferDeviceMemory);
 }
 
 void createIndexBuffer() {
-	createAndUploadBuffer(device, physicalDevices[0], queue, commandPool, indices, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer, indexBufferDeviceMemory);
+	createAndUploadBuffer(device, physicalDevice, queue, commandPool, indices, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer, indexBufferDeviceMemory);
 }
 
 void createUniformBuffer() {
 	VkDeviceSize bufferSize = sizeof(ubo);
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBuffer, //TODO 0
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBufferMemory);
 
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer, //TODO 0
 		/*VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/ VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, uniformBufferMemory);
 	
 
@@ -1105,10 +1123,10 @@ void createUniformBuffer() {
 
 	//Camera buffer
 	bufferSize = sizeof(CameraUbo);
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,	//TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,	//TODO 0
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraStagingBufferMemory);
 
-	createBuffer(device, physicalDevices[0], bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cameraUniformBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cameraUniformBuffer, //TODO 0
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, cameraUniformBufferMemory);
 }
 
@@ -1122,10 +1140,10 @@ void createLights() {
 	}
 
 	pointlightBufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
-	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, lightStagingBuffer,
+	createBuffer(device, physicalDevice, pointlightBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, lightStagingBuffer,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, lightStagingBufferMemory);
 
-	createBuffer(device, physicalDevices[0], pointlightBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
+	createBuffer(device, physicalDevice, pointlightBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory); //TODO physDev[0] und vll storage zu uniform
 }
 
@@ -1503,11 +1521,11 @@ void createSemaphores() {
 void startVulkan() {
 	setSceneConfiguration();
 	createInstance();
-	physicalDevices = getAllPhysicalDevices();
+	pickPhysicalDevice();
 	printInstanceLayers();
 	printInstanceExtensions();
 	createGlfwWindowSurface();
-	printPhysicalDevicesStats();
+	printallPhysicalDevicesStats();
 	createLogicalDevice();
 	createQueue();
 	checkSurfaceSupport();
