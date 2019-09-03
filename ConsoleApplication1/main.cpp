@@ -1459,7 +1459,7 @@ void updateUniformBuffers(float deltatime) {
 	ubo.model = modelMatrix;
 
 	//update camera ubo
-	viewMatrix = glm::lookAt(glm::vec3(0.7f, 7.0f, 5.0f), glm::vec3(0.0f, -2.0f, 0.0f), glm::vec3(0, 0, 1.0f));
+	viewMatrix = glm::lookAt(glm::vec3(0.7f, 7.0f, 5.0f), glm::vec3(0.0f, -3.0f, 0.0f), glm::vec3(0, 0, 1.0f));
 	cameraUbo.view = viewMatrix;
 	cameraUbo.proj = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
 	cameraUbo.proj[1][1] *= -1; //Y Axis points down in Vulkan
@@ -1485,12 +1485,13 @@ void updateUniformBuffers(float deltatime) {
 	VkDeviceSize bufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
 
 	for (int i = 0; i < lightNums; i++) {
-		pointLights[i].pos += glm::vec3(0, 0.03f, 0) * deltatime;
+		pointLights[i].pos += glm::vec3(0, 0.2f, 0) /** deltatime*/;
 		//reset lights if Y is too low
 		if (pointLights[i].pos.y > sceneConfiguration.maxLightPos.y) {
 			pointLights[i].pos.y -= (sceneConfiguration.maxLightPos.y - sceneConfiguration.minLightPos.y);
 		}
 	}
+	//std::cout << pointLights[0].pos.y << std::endl;
 
 	auto pointlightsSize = sizeof(PointLight) * pointLights.size();
 	void* rawData;
@@ -1681,6 +1682,7 @@ void mainLoop() {
 		timeSinceStart = std::chrono::duration<float>(current - previous).count();
 		glfwPollEvents();
 		requestDraw(timeSinceStart);
+		
 	}
 }
 
