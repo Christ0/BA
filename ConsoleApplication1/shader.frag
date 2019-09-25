@@ -17,8 +17,9 @@ struct LightVisiblity{
 };
 
 layout(push_constant) uniform PushConstantObject{
-	ivec2 viewport_size;
-	ivec2 tile_nums;
+	ivec2 viewportSize;
+	ivec2 tileNums;
+	int debugviewIndex;
 } pushConstants;
 
 layout(std140, set = 0, binding = 0) uniform UniformBufferObject{
@@ -37,12 +38,12 @@ layout(std430, set = 1, binding = 0) readonly buffer TileLightVisiblities{
     LightVisiblity lightVisiblities[];
 };
 
-layout(std140, set = 1, binding = 1) readonly buffer PointLights{ // FIXME: change back to uniform // readonly buffer PointLights
+layout(std140, set = 1, binding = 1) readonly buffer PointLights{
 	int lightNum;
 	PointLight pointlights[2000];
 };
 
-layout(set = 3, binding = 0) uniform sampler2D depth_sampler;
+layout(set = 3, binding = 0) uniform sampler2D depthSampler;
 
 layout(location = 0) in vec3 fragColor;
 layout(location = 1) in vec2 fragUVCoord;
@@ -61,15 +62,31 @@ layout(early_fragment_tests) in;
 //	bool usePhong;
 //} pushConts;
 
-vec4 phong();
-vec4 cartoon();
+//vec4 phong();
+//vec4 cartoon();
 
 void main(){
 	ivec2 tileID = ivec2(gl_FragCoord.xy / TILE_SIZE);
-	uint tileIndex = tileID.y * pushConstants.tile_nums.x + tileID.x;
+	uint tileIndex = tileID.y * pushConstants.tileNums.x + tileID.x;
 
 	vec3 illuminance = vec3 (0.0);
 	uint tileLightNum = lightVisiblities[tileIndex].count;
+
+	//debugview
+	if(pushConstants.debugviewIndex > 1){
+		if(pushConstants.debugviewIndex == 2){
+			float intensity = float(lightVisiblities[tileIndex].count) / 64;
+			 outColor = vec4(vec3(intensity), 1.0) ; //light culling debug
+		}
+		else if(pushConstants.debugviewIndex == 3){
+			float preDepth = texture(depthSampler, (gl_FragCoord.xy/pushConstants.viewportSize) ).x;
+            outColor = vec4(vec3( preDepth ),1.0);
+		}
+		else if(pushConstants.debugviewIndex == 4){
+			 outColor = vec4(abs(fragNormal), 1.0);
+		}
+		return;
+	}
 
 	for(int i = 0; i < tileLightNum; i++){
 		PointLight light = pointlights[lightVisiblities[tileIndex].lightindices[i]];
@@ -87,11 +104,18 @@ void main(){
             float specular = pow(specAngle, 32.0);
 
             float att = clamp(1.0 - lightDistance * lightDistance / (light.radius * light.radius), 0.0, 1.0);
-            illuminance += light.intensity * att * (lambertian);
-			//illuminance = vec3(0.5);
+            illuminance += light.intensity * att * (lambertian + specular);
 		}
 	}
+
+	if(pushConstants.debugviewIndex == 1){
+		float intensity = float(lightVisiblities[tileIndex].count) / (64/2.0);
+		outColor = vec4(vec3(intensity, intensity * 0.5, intensity * 0.5) + illuminance * 0.25, 1.0);
+		return;
+	}
+
 	outColor = vec4(illuminance, 1.0);
+	
 	//outColor = phong();
 
 	//outColor = vec4(fragColor, 1.0);

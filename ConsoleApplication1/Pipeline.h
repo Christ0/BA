@@ -9,13 +9,16 @@ class Pipeline {
 private:
 	VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
 	VkPipelineLayout depthPipelinaLayout = VK_NULL_HANDLE;
+	VkPipelineLayout pipelineLayoutCompute = VK_NULL_HANDLE;
 	VkPipeline pipeline = VK_NULL_HANDLE;
 	VkPipeline depthPipeline = VK_NULL_HANDLE;
+	VkPipeline pipelineCompute;
 	VkDevice device = VK_NULL_HANDLE;
 
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfoVert;
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfoFrag;
 	VkPipelineShaderStageCreateInfo shaderStageCreateInfoDepth;
+	VkPipelineShaderStageCreateInfo shaderStageCreateInfoCompute;
 	VkPipelineVertexInputStateCreateInfo vertexInputCreateInfo;
 	VkPipelineInputAssemblyStateCreateInfo inputAssemblyCreateInfo;
 	VkViewport viewport;
@@ -28,6 +31,7 @@ private:
 	VkPipelineDynamicStateCreateInfo dynamicStateCreateInfo;
 	VkPipelineDepthStencilStateCreateInfo prePassDepthStencilStateCreateInfo;
 	VkPushConstantRange pushConstantRange;
+	
 
 	std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
 	std::array<VkDescriptorSetLayout, 2> depthSetLayout;
@@ -40,7 +44,7 @@ private:
 public:
 	Pipeline(){}
 
-	void ini(VkShaderModule vertexShader, VkShaderModule fragmentShader, VkShaderModule depthShader, uint32_t windowWidth, uint32_t windowHeight) {
+	void iniGraphics(VkShaderModule vertexShader, VkShaderModule fragmentShader, VkShaderModule depthShader, uint32_t windowWidth, uint32_t windowHeight) {
 		shaderStageCreateInfoVert.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 		shaderStageCreateInfoVert.pNext = nullptr;
 		shaderStageCreateInfoVert.flags = 0;
@@ -94,7 +98,7 @@ public:
 		rasterizationCreateInfo.depthClampEnable = VK_FALSE;
 		rasterizationCreateInfo.rasterizerDiscardEnable = VK_FALSE;
 		rasterizationCreateInfo.polygonMode = VK_POLYGON_MODE_FILL;
-		rasterizationCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterizationCreateInfo.cullMode = VK_CULL_MODE_BACK_BIT;//VK_CULL_MODE_NONE
 		rasterizationCreateInfo.frontFace = VK_FRONT_FACE_CLOCKWISE;
 		rasterizationCreateInfo.depthBiasEnable = VK_FALSE;
 		rasterizationCreateInfo.depthBiasConstantFactor = 0.0f;
@@ -102,6 +106,7 @@ public:
 		rasterizationCreateInfo.depthBiasSlopeFactor = 0.0f;
 		rasterizationCreateInfo.lineWidth = 1.0f;
 		
+		//kein AA
 		multisampleCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 		multisampleCreateInfo.pNext = nullptr;
 		multisampleCreateInfo.flags = 0;
@@ -112,7 +117,7 @@ public:
 		multisampleCreateInfo.alphaToCoverageEnable = VK_FALSE;
 		multisampleCreateInfo.alphaToOneEnable = VK_FALSE;
 
-		// no depthStencilStateCreateInfo, get in from DepthImage
+		//hier kein depthStencilStateCreateInfo, kommt von DepthImage
 
 		colorBlendAttachment.blendEnable = VK_TRUE;
 		colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
@@ -163,7 +168,7 @@ public:
 		wasInitialized = true;
 	}
 
-	void create(VkDevice device, VkRenderPass renderPass, VkRenderPass depthPrePass, std::vector<VkDescriptorSetLayout> descriptorSetLayout) {
+	void createGraphics(VkDevice device, VkRenderPass renderPass, VkRenderPass depthPrePass, std::vector<VkDescriptorSetLayout> descriptorSetLayout) {
 		if (!wasInitialized) {
 			throw std::logic_error("Call ini() first!");
 		}
@@ -216,7 +221,7 @@ public:
 
 
 		depthSetLayout = { descriptorSetLayout.at(0), descriptorSetLayout.at(2) }; // 0 and 2 are the layouts for the main one
-																	   // and the one for the camera, check allSetLayouts in main.cpp createDescriptorSetLayout()
+																				   // and the one for the camera, check allSetLayouts in main.cpp createDescriptorSetLayout()
 		
 		VkPipelineLayoutCreateInfo depthPipelineLayoutInfo;
 		depthPipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -248,12 +253,54 @@ public:
 		depthPipelineCreateInfo.layout = depthPipelinaLayout;
 		depthPipelineCreateInfo.renderPass = depthPrePass;
 		depthPipelineCreateInfo.subpass = 0;
-		depthPipelineCreateInfo.basePipelineHandle = pipeline;
+		depthPipelineCreateInfo.basePipelineHandle = pipeline; //Erben von der normalen Pipeline
 		depthPipelineCreateInfo.basePipelineIndex = -1;
 
 		vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &depthPipelineCreateInfo, nullptr, &depthPipeline);
 
 		wasCreated = true;
+	}
+
+	void iniCompute(std::vector<VkDescriptorSetLayout> allSetLayoutsForCompute, VkShaderModule shaderModuleComp) {
+		VkPushConstantRange pushConstantRange;
+		pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		pushConstantRange.offset = 0;
+		pushConstantRange.size = sizeof(PushConstantObject);
+
+		VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfoCompute;
+		shaderStageCreateInfoCompute.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		shaderStageCreateInfoCompute.pNext = nullptr;
+		shaderStageCreateInfoCompute.flags = 0;
+		shaderStageCreateInfoCompute.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		shaderStageCreateInfoCompute.module = shaderModuleComp;
+		shaderStageCreateInfoCompute.pName = "main";
+		shaderStageCreateInfoCompute.pSpecializationInfo = nullptr;
+
+		VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo;
+		pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipelineLayoutCreateInfo.pNext = nullptr;
+		pipelineLayoutCreateInfo.flags = 0;
+		pipelineLayoutCreateInfo.setLayoutCount = allSetLayoutsForCompute.size();
+		pipelineLayoutCreateInfo.pSetLayouts = allSetLayoutsForCompute.data();
+		pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
+		pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
+
+		VkResult result = vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayoutCompute);
+		CHECK_FOR_CRASH(result);
+	}
+
+	void createCompute() {
+		VkComputePipelineCreateInfo pipelineCreateInfoCompute;
+		pipelineCreateInfoCompute.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+		pipelineCreateInfoCompute.pNext = nullptr;
+		pipelineCreateInfoCompute.flags = 0;
+		pipelineCreateInfoCompute.stage = shaderStageCreateInfoCompute;
+		pipelineCreateInfoCompute.layout = pipelineLayoutCompute;
+		pipelineCreateInfoCompute.basePipelineHandle = VK_NULL_HANDLE;
+		pipelineCreateInfoCompute.basePipelineIndex = -1;
+
+		VkResult result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfoCompute, nullptr, &pipelineCompute);
+		CHECK_FOR_CRASH(result);
 	}
 
 	void destroy() {
@@ -262,11 +309,13 @@ public:
 			vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
 			vkDestroyPipeline(device, depthPipeline, nullptr);
 			vkDestroyPipelineLayout(device, depthPipelinaLayout, nullptr);
+			vkDestroyPipeline(device, pipelineCompute, nullptr);
+			vkDestroyPipelineLayout(device, pipelineLayoutCompute, nullptr);
 			wasCreated = false;
 		}
 	}
 
-	VkPipeline getPipeline() {
+	VkPipeline getGraphicsPipeline() {
 		if (!wasCreated) {
 			throw std::logic_error("Pipeline was not created!");
 		}
@@ -280,7 +329,7 @@ public:
 		return depthPipeline;
 	}
 
-	VkPipelineLayout getLayout() {
+	VkPipelineLayout getGraphicsLayout() {
 		if (!wasCreated) {
 			throw std::logic_error("Pipeline was not created!");
 		}
@@ -292,5 +341,19 @@ public:
 			throw std::logic_error("Pipeline was not created!");
 		}
 		return depthPipelinaLayout;
+	}
+
+	VkPipelineLayout getComputePipeline() {
+		if (!wasCreated) {
+			throw std::logic_error("Pipeline was not created!");
+		}
+		return pipelineCompute;
+	}
+
+	VkPipelineLayout getComputeLayout() {
+		if (!wasCreated) {
+			throw std::logic_error("Pipeline was not created!");
+		}
+		return pipelineLayoutCompute;
 	}
 };

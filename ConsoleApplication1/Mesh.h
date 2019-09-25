@@ -41,10 +41,10 @@ private:
 	BufferSection indexBufferSection = {};
 	std::vector<MeshGroup> groups;
 	std::vector<MeshPart> m_meshParts;
-	VkBuffer buffer;
+	VkBuffer combinedBuffer;
 	VkBuffer stagingBufferVertex;
 	VkBuffer stagingBufferIndex;
-	VkDeviceMemory bufferMemory;
+	VkDeviceMemory combinedBufferMemory;
 	VkDeviceMemory stagingBufferVertexMemory;
 	VkDeviceMemory stagingBufferIndexMemory;
 
@@ -121,7 +121,7 @@ public:
 			bufferSize += vertexSectionSize;
 			bufferSize += indexSectionSize;
 		}
-		createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, buffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, bufferMemory);
+		createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, combinedBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, combinedBufferMemory);
 		VkDeviceSize currentOffset = 0;
 
 		for (const auto& group : groups) {
@@ -131,7 +131,7 @@ public:
 
 			//copy Vertex Data
 			{
-				vertexBufferSection = { buffer, currentOffset, vertexSectionSize };
+				vertexBufferSection = { combinedBuffer, currentOffset, vertexSectionSize };
 				auto stagingBufferVertexSize = vertexSectionSize;
 				auto hostData = group.m_vertices.data();
 
@@ -141,17 +141,15 @@ public:
 				memcpy(data, hostData, stagingBufferVertexSize);
 				vkUnmapMemory(device, stagingBufferVertexMemory);
 
-				copyBuffer(device, queue, commandPool, stagingBufferVertex, buffer, stagingBufferVertexSize, 0, currentOffset);
+				copyBuffer(device, queue, commandPool, stagingBufferVertex, combinedBuffer, stagingBufferVertexSize, 0, currentOffset);
 				currentOffset += stagingBufferVertexSize;
 			}
 
 			//copy Index Data
 			{
-				indexBufferSection = { buffer, currentOffset, indexSectionSize };
+				indexBufferSection = { combinedBuffer, currentOffset, indexSectionSize };
 				auto stagingBufferIndexSize = indexSectionSize;
 				auto hostData = group.m_indices.data();
-				VkBuffer stagingBufferModel;
-				VkBuffer stagingBufferModelMemory;
 				createBuffer(device, physicalDevice, stagingBufferIndexSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBufferIndex, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBufferIndexMemory);
 
 				void* data;
@@ -159,7 +157,7 @@ public:
 				memcpy(data, hostData, stagingBufferIndexSize);
 				vkUnmapMemory(device, stagingBufferIndexMemory);
 
-				copyBuffer(device, queue, commandPool, stagingBufferIndex, buffer, stagingBufferIndexSize, 0, currentOffset);
+				copyBuffer(device, queue, commandPool, stagingBufferIndex, combinedBuffer, stagingBufferIndexSize, 0, currentOffset);
 
 				currentOffset += stagingBufferIndexSize;
 			}	
@@ -202,8 +200,8 @@ public:
 	}
 
 	void cleanup(VkDevice device) {
-		vkFreeMemory(device, bufferMemory, nullptr);
-		vkDestroyBuffer(device, buffer, nullptr);
+		vkFreeMemory(device, combinedBufferMemory, nullptr);
+		vkDestroyBuffer(device, combinedBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferVertexMemory, nullptr);
 		vkDestroyBuffer(device, stagingBufferVertex, nullptr);
 		vkFreeMemory(device, stagingBufferIndexMemory, nullptr);

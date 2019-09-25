@@ -22,7 +22,7 @@ layout(location = 3) in vec3 in_Normal;
 layout(location = 0) out vec3 fragColor;
 layout(location = 1) out vec2 fragUVCoord;
 layout(location = 2) out vec3 fragNormal;
-layout(location = 3) out vec4 fragWorldPos;
+layout(location = 3) out vec3 fragWorldPos;
 layout(location = 4) out vec3 fragViewVec;
 layout(location = 5) out vec3 fragLightVec;
 
@@ -38,9 +38,9 @@ void main(){ //Für jeden Vertex ausführen
 	fragColor = in_color;
 	fragUVCoord = in_UVCoord;
 
-	//fragNormal = normalize((invTransModel * vec4(in_Normal, 0.0)).xyz);
-	fragWorldPos = vec4(transform.model * vec4(in_pos, 1.0));
-	fragViewVec = -(camera.view * fragWorldPos).xyz;
+	fragNormal = normalize((invTransModel * vec4(in_Normal, 0.0)).xyz);
+	fragWorldPos = vec3(transform.model * vec4(in_pos, 1.0));
+	//fragViewVec = -(camera.view * fragWorldPos).xyz;
 	fragLightVec = mat3(camera.view) * (transform.lightPosition - vec3(fragWorldPos));
-	fragNormal = mat3(camera.view) * mat3(transform.model) * in_Normal; //model zu mat3 casten, damit der Translate Teil wegfällt und die normals nicht verschoben werden
+	//fragNormal = mat3(camera.view) * mat3(transform.model) * in_Normal; //model zu mat3 casten, damit der Translate Teil wegfällt und die normals nicht verschoben werden
 }

@@ -4,6 +4,11 @@
 #include <GLFW\glfw3.h>
 #include <../glm/gtc/matrix_transform.hpp>
 #include <vector>
+#include <fstream>
+
+/*
+	Sammlung nützlicher und oft verwendeter Funktionen für Vulkan
+*/
 
 //Makro zum Prüfen auf Crashes, löst Haltepunkt aus bei Crash
 #define CHECK_FOR_CRASH(value)\
@@ -14,16 +19,31 @@
 struct PushConstantObject {
 	glm::ivec2 viewportSize;
 	glm::ivec2 tileNums;
-
+	int debugviewIndex;
 	PushConstantObject(int viewportSizeX, int viewportSizeY, int tileNumX, int tileNumY) :
 		viewportSize(viewportSizeX, viewportSizeY), tileNums(tileNumX, tileNumY) {}
 };
+
+std::vector<char> readFile(const std::string &filename) {
+	std::ifstream file(filename, std::ios::binary | std::ios::ate);
+	if (file) {
+		size_t filesize = (size_t)file.tellg();
+		std::vector<char> fileBuffer(filesize);
+		file.seekg(0); //Lesekopf zum Beginn der File
+		file.read(fileBuffer.data(), filesize);
+		file.close();
+		return fileBuffer;
+	}
+	else {
+		throw std::runtime_error("Failed to open file!");
+	}
+}
 
 uint32_t findMemoryTypeIndex(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
 	VkPhysicalDeviceMemoryProperties physicalDeviceMemoryProperties;
 	vkGetPhysicalDeviceMemoryProperties(physicalDevice, &physicalDeviceMemoryProperties); //TODO civ
 	for (uint32_t i = 0; i < physicalDeviceMemoryProperties.memoryTypeCount; i++) {
-		//Wenn Typefilter passt und PropertyFlags erfüllt sind
+		//Iteriere über Bits und prüfe ob an Stelle i gesetzt && Schau, ob Properties passen
 		if ((typeFilter & (1 << i)) && ((physicalDeviceMemoryProperties.memoryTypes[i].propertyFlags & properties) == properties)) {
 			return i;
 		}

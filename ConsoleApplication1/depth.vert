@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 // Vertex shader for depth prepass
 
-layout(std140, set = 0, binding = 0) uniform SceneObjectUbo{
+layout(std140, set = 0, binding = 0) uniform UniformBufferObject{
     mat4 model;
 } transform;
 

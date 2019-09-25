@@ -11,7 +11,6 @@
 #include <iostream>
 #include <vector>
 #include <array>
-#include <fstream>
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE // Bei OpenGL ist Z-Buffer zwischen -1 und 1, in Vulkan zwischen 0 und 1. Makro um GLMs Projectionmatrix auf Vulkan zu stellen
 #include <glm.hpp>
 #include <../glm/gtc/matrix_transform.hpp>
@@ -19,13 +18,14 @@
 #include <chrono>
 #define DEBUG_BUILD
 
-const int MAX_POINT_LIGHT_COUNT = 1024;
+const int MAX_POINT_LIGHT_COUNT = 1024 * 8;
 const uint32_t MAX_POINT_LIGHT_PER_TILE = 1023;
 const int TILE_SIZE = 16;
 int tileCountPerRow = 0;
 int tileCountPerCol = 0;
 int graphicsQueueIndex = 0;
 int computeQueueIndex = 0;
+short debugViewForFragment = 0; //0 = normales Rendering, 1 2 3 4 =  debugview
 
 bool wDown = false;
 bool aDown = false;
@@ -52,8 +52,6 @@ VkRenderPass depthPrePass;
 VkRenderPass renderPass;
 
 Pipeline pipeline;
-VkPipeline pipelineCompute;
-VkPipelineLayout pipelineLayoutCompute;
 
 VkCommandPool commandPool;
 VkCommandPool commandPoolCompute;
@@ -70,8 +68,6 @@ VkSemaphore semaphoreDepthPrepassDone;
 VkQueue queue;
 VkQueue computeQueue;
 
-VkBuffer vertexBuffer;
-VkBuffer indexBuffer;
 VkBuffer uniformBuffer;
 VkBuffer stagingBuffer;
 VkBuffer cameraStagingBuffer;
@@ -80,8 +76,6 @@ VkBuffer lightVisibilityBuffer;
 VkBuffer pointlightBuffer;
 VkBuffer lightStagingBuffer;
 
-VkDeviceMemory vertexBufferDeviceMemory;
-VkDeviceMemory indexBufferDeviceMemory;
 VkDeviceMemory uniformBufferMemory;
 VkDeviceMemory stagingBufferMemory;
 VkDeviceMemory cameraStagingBufferMemory;
@@ -92,6 +86,10 @@ VkDeviceMemory lightStagingBufferMemory;
 
 VkDeviceSize lightVisibilityBufferSize = 0;
 VkDeviceSize pointlightBufferSize = 0;
+
+std::vector<char> shaderCodeVert;
+std::vector<char> shaderCodeFrag;
+std::vector<char> shaderCodeDepth;
 
 
 uint32_t amountOfImagesInSwapchain = 0;
@@ -156,13 +154,14 @@ glm::mat4 projViewMatrix;
 VkDescriptorSetLayout descriptorSetLayout; 
 VkDescriptorSetLayout descriptorSetLayoutLightCulling;
 VkDescriptorSetLayout descriptorSetLayoutCamera;
-VkDescriptorSetLayout descriptorSetLayoutIntermediate;
+VkDescriptorSetLayout descriptorSetLayoutDepth;
 std::vector<VkDescriptorSetLayout> allSetLayouts;
+std::vector<VkDescriptorSetLayout> allSetLayoutsForCompute;
 
 VkDescriptorSet lightCullingDescriptorSet;
 VkDescriptorSet descriptorSet;
 VkDescriptorSet cameraDescriptorSet;
-VkDescriptorSet intermediateDescriptorSet;
+VkDescriptorSet depthDescriptorSet;
 VkDescriptorPool descriptorPool;
 
 
@@ -170,14 +169,13 @@ EasyImage ezImage;
 DepthImage depthImage;
 SceneConfiguration sceneConfiguration;
 
-Mesh dragonMesh;
+Mesh mesh;
 
 std::vector<Vertex> vertices = {};
 std::vector<uint32_t> indices = {};
 
-
 void printStats(VkPhysicalDevice &device) {
-	//Eigenschaften der GPU
+	//Gibt Eigenschaften der GPU aus
 	VkPhysicalDeviceProperties properties = { };
 	vkGetPhysicalDeviceProperties(device, &properties);
 	std::cout << std::endl;
@@ -264,39 +262,17 @@ void printStats(VkPhysicalDevice &device) {
 	delete[] presentModes;
 }
 
-
-std::vector<char> readFile(const std::string &filename) {
-	std::ifstream file(filename, std::ios::binary | std::ios::ate);
-	if (file) {
-		size_t filesize = (size_t)file.tellg();
-		std::vector<char> fileBuffer(filesize);
-		file.seekg(0); //Lesekopf zum Beginn der File
-		file.read(fileBuffer.data(), filesize);
-		file.close();
-		return fileBuffer;
-	}
-	else {
-		throw std::runtime_error("Failed to open file!");
-	}
-}
-
 void recreateSwapchain();
 
 void onWindowResized(GLFWwindow *window, int width, int height) {
+	if (width == 0) width == 1;
+	if (height == 0) height == 1;
+
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, surface, &surfaceCapabilities);
-
-	if (width > surfaceCapabilities.maxImageExtent.width) width = surfaceCapabilities.maxImageExtent.width;
-	if (width < surfaceCapabilities.minImageExtent.width) width = surfaceCapabilities.minImageExtent.width;
-	if (height > surfaceCapabilities.maxImageExtent.height) height = surfaceCapabilities.maxImageExtent.height;
-	if (height < surfaceCapabilities.minImageExtent.height) height = surfaceCapabilities.minImageExtent.height;
-
-	if (width == 0 || height == 0) return;
-	else {
-		windowWidth = width;
-		windowHeight = height;
-		recreateSwapchain();
-	}
+	windowWidth = width;
+	windowHeight = height;
+	recreateSwapchain();
 }
 
 void startGLFW() {
@@ -304,20 +280,26 @@ void startGLFW() {
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	//glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
+	const GLFWvidmode* mode = glfwGetVideoMode(glfwGetPrimaryMonitor());
+	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+	glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+	//glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
+
 	window = glfwCreateWindow(windowWidth, windowHeight, "VulkanRenderer", 0, nullptr);
 	glfwSetWindowSizeCallback(window, onWindowResized);
 }
 
-float tempScale = 1.0f;
-
 void setSceneConfiguration() {
 	sceneConfiguration = {
+		//0.08f,								//scale
 		0.5f,									//scale
-		glm::vec3{-20 * tempScale, -5 * tempScale, -20 * tempScale}, 				//minLightPos
-		glm::vec3{20 * tempScale, 20 * tempScale, 20 * tempScale},					//maxLightPos
-		5.0f,									//radius
+		glm::vec3{-25, -25, -25}, 				//minLightPos
+		glm::vec3{25, 25, 25},					//maxLightPos
+		3.0f,									//radius
 		2000,									//lightNum
-		glm::vec3{0.7f, 0.7f, 0.2f},			//camera Position
+		glm::vec3{0.7f, 7.0f, 5.0f},			//camera Position
 		glm::quat{0.8f, -2.9f, 0.34f, 0.11f}	//camera Rotation
 	};
 }
@@ -402,7 +384,7 @@ void createGlfwWindowSurface() {
 
 void pickPhysicalDevice() {
 	uint32_t amountOfPhysicalDevices = 0;
-	VkResult result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, nullptr);
+	VkResult result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, nullptr); //Gibt in amountOfPhysicalDevices die Anzahl an verfügbaren Grafikkarten ein
 	CHECK_FOR_CRASH(result);
 
 	allPhysicalDevices.resize(amountOfPhysicalDevices);
@@ -410,7 +392,9 @@ void pickPhysicalDevice() {
 		throw std::runtime_error("Could not find a device with vulkan support!");
 	}
 
-	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, allPhysicalDevices.data());
+	result = vkEnumeratePhysicalDevices(instance, &amountOfPhysicalDevices, allPhysicalDevices.data()); 
+	//^ Selbe Funktion wie oben, hat aber unterschiedliche Funktion. Diesmal statt nullptr mit dem Inhalt von allPhysicalDevices
+	// Gibt Infos zu allen Grafikkarten in allPhysicalDevices ein																									
 	CHECK_FOR_CRASH(result);
 
 	for (int i = 0; i < amountOfPhysicalDevices; i++) {
@@ -463,12 +447,11 @@ void createLogicalDevice() {
 
 	VkPhysicalDeviceFeatures usedFeatures = {};
 	usedFeatures.samplerAnisotropy = VK_TRUE;
-	usedFeatures.vertexPipelineStoresAndAtomics = VK_TRUE;
-	usedFeatures.fragmentStoresAndAtomics = VK_TRUE;
+	usedFeatures.vertexPipelineStoresAndAtomics = VK_TRUE; // Wichtig für Shader
+	usedFeatures.fragmentStoresAndAtomics = VK_TRUE;	   // Wichtig für Shader
 
 	const std::vector<const char*> deviceExtensions = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME
-
 	};
 
 	VkDeviceCreateInfo deviceCreateInfo = { };
@@ -484,18 +467,18 @@ void createLogicalDevice() {
 	deviceCreateInfo.pEnabledFeatures = &usedFeatures;
 
 
-	VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device); //TODO Nimm "bestes device"
+	VkResult result = vkCreateDevice(physicalDevice, &deviceCreateInfo, nullptr, &device); 
 	CHECK_FOR_CRASH(result);
 }
 
 void createQueue() {
-	vkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue); //TODO adjust index
-	vkGetDeviceQueue(device, computeQueueIndex, 0, &computeQueue); //TODO adjust index
+	vkGetDeviceQueue(device, graphicsQueueIndex, 0, &queue); 
+	vkGetDeviceQueue(device, computeQueueIndex, 0, &computeQueue); 
 }
 
 void checkSurfaceSupport() {
 	VkBool32 surfaceSupport = false;
-	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, 0, surface, &surfaceSupport); //TODO CIV
+	VkResult result = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, 0, surface, &surfaceSupport); 
 	CHECK_FOR_CRASH(result);
 
 	if (!surfaceSupport) {
@@ -521,7 +504,7 @@ void createSwapchain() {
 	swapChainCreateInfo.pQueueFamilyIndices = nullptr;
 	swapChainCreateInfo.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
 	swapChainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-	swapChainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; //TODO CIV
+	swapChainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; 
 	swapChainCreateInfo.clipped = VK_TRUE;
 	swapChainCreateInfo.oldSwapchain = swapchain;
 
@@ -542,10 +525,10 @@ void createImageViews() {
 	delete[] swapchainImages;
 }
 
-void createRenderPass() {
+void createRenderPasses() {
 	//Depth PrePass
 	{
-		VkAttachmentDescription depthAttachment = DepthImage::getDepthAttachment(physicalDevice); //TODO 0
+		VkAttachmentDescription depthAttachment = DepthImage::getDepthAttachment(physicalDevice); 
 
 		VkAttachmentReference depthAttachmentReference;
 		depthAttachmentReference.attachment = 0;
@@ -594,6 +577,7 @@ void createRenderPass() {
 		VkAttachmentDescription colorAttachmentDescription;
 		colorAttachmentDescription.flags = 0;
 		colorAttachmentDescription.format = imageFormat;
+		colorAttachmentDescription.format = imageFormat;
 		colorAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
 		colorAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		colorAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -604,14 +588,12 @@ void createRenderPass() {
 
 		VkAttachmentDescription depthAttachmentDescription;
 		depthAttachmentDescription.flags = 0;
-		depthAttachmentDescription.format = DepthImage::findDepthFormat(physicalDevice); //TODO 0
+		depthAttachmentDescription.format = DepthImage::findDepthFormat(physicalDevice); 
 		depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-		depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+		depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; //lade depth prepass info
 		depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		//depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		//depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 		depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 		depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
@@ -745,7 +727,7 @@ void createDescriptorSetLayout() {
 	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutCameraCreateInfo;
 	descriptorSetLayoutCameraCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 	descriptorSetLayoutCameraCreateInfo.pNext = nullptr;
-	descriptorSetLayoutCameraCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
+	descriptorSetLayoutCameraCreateInfo.flags = 0; 
 	descriptorSetLayoutCameraCreateInfo.bindingCount = 1;
 	descriptorSetLayoutCameraCreateInfo.pBindings = &cameraLayoutBinding;
 
@@ -759,35 +741,106 @@ void createDescriptorSetLayout() {
 	samplerLayoutBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 	samplerLayoutBinding.pImmutableSamplers = nullptr;
 
-	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutIntermediateCreateInfo;
-	descriptorSetLayoutIntermediateCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-	descriptorSetLayoutIntermediateCreateInfo.pNext = nullptr;
-	descriptorSetLayoutIntermediateCreateInfo.flags = 0; //TODO evtl research auf vk::DescriptorSetLayoutCreateFlags()...
-	descriptorSetLayoutIntermediateCreateInfo.bindingCount = 1;
-	descriptorSetLayoutIntermediateCreateInfo.pBindings = &samplerLayoutBinding;
+	VkDescriptorSetLayoutCreateInfo descriptorSetLayoutDepthCreateInfo;
+	descriptorSetLayoutDepthCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+	descriptorSetLayoutDepthCreateInfo.pNext = nullptr;
+	descriptorSetLayoutDepthCreateInfo.flags = 0; 
+	descriptorSetLayoutDepthCreateInfo.bindingCount = 1;
+	descriptorSetLayoutDepthCreateInfo.pBindings = &samplerLayoutBinding;
 
-	result = vkCreateDescriptorSetLayout(device, &descriptorSetLayoutIntermediateCreateInfo, nullptr, &descriptorSetLayoutIntermediate);
+	result = vkCreateDescriptorSetLayout(device, &descriptorSetLayoutDepthCreateInfo, nullptr, &descriptorSetLayoutDepth);
 	CHECK_FOR_CRASH(result);
 
 	
 	allSetLayouts.push_back(descriptorSetLayout);
 	allSetLayouts.push_back(descriptorSetLayoutLightCulling);
 	allSetLayouts.push_back(descriptorSetLayoutCamera);
-	allSetLayouts.push_back(descriptorSetLayoutIntermediate);
+	allSetLayouts.push_back(descriptorSetLayoutDepth);
+
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutLightCulling);
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutCamera);
+	allSetLayoutsForCompute.push_back(descriptorSetLayoutDepth);
 }
 
-void createPipeline() {
-	auto shaderCodeVert = readFile("vert.spv");
-	auto shaderCodeFrag = readFile("frag.spv");
-	auto shaderCodeDepth = readFile("depth_vert.spv");
+void createPipelineGraphics() {
+	shaderCodeVert = readFile("vert.spv");
+	shaderCodeFrag = readFile("frag.spv");
+	shaderCodeDepth = readFile("depth_vert.spv");
 	
-
 	createShaderModule(shaderCodeVert, &shaderModuleVert);
 	createShaderModule(shaderCodeFrag, &shaderModuleFrag);
 	createShaderModule(shaderCodeDepth, &shaderModuleDepth);
 
-	pipeline.ini(shaderModuleVert, shaderModuleFrag, shaderModuleDepth, windowWidth, windowHeight);
-	pipeline.create(device, renderPass, depthPrePass, allSetLayouts);
+	pipeline.iniGraphics(shaderModuleVert, shaderModuleFrag, shaderModuleDepth, windowWidth, windowHeight);
+	pipeline.createGraphics(device, renderPass, depthPrePass, allSetLayouts);
+}
+
+void createPipelineCompute() {
+	auto shaderCodeCompute = readFile("comp.spv");
+	createShaderModule(shaderCodeCompute, &shaderModuleComp);
+
+	pipeline.iniCompute(allSetLayoutsForCompute, shaderModuleComp);
+	pipeline.createCompute();
+}
+
+void createCommandPool() {
+	VkCommandPoolCreateInfo commandPoolCreateInfo;
+	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfo.pNext = nullptr;
+	commandPoolCreateInfo.flags = 0;
+	commandPoolCreateInfo.queueFamilyIndex = graphicsQueueIndex; //nur Queue mit VK_QUEUE_GRAPHICS_BIT
+
+	VkResult result = vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool);
+	CHECK_FOR_CRASH(result);
+
+	VkCommandPoolCreateInfo commandPoolCreateInfoCompute;
+	commandPoolCreateInfoCompute.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfoCompute.pNext = nullptr;
+	commandPoolCreateInfoCompute.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+	commandPoolCreateInfoCompute.queueFamilyIndex = computeQueueIndex; //nur Queue mit VK_QUEUE_COMPUTE_BIT
+
+	result = vkCreateCommandPool(device, &commandPoolCreateInfoCompute, nullptr, &commandPoolCompute);
+	CHECK_FOR_CRASH(result);
+}
+
+void createCommandBuffers() {
+	//CommandBuffer für Rendering
+	VkCommandBufferAllocateInfo commandBufferRenderAllocateInfo;
+	commandBufferRenderAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferRenderAllocateInfo.pNext = nullptr;
+	commandBufferRenderAllocateInfo.commandPool = commandPool;
+	commandBufferRenderAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferRenderAllocateInfo.commandBufferCount = amountOfImagesInSwapchain;
+
+	commandBuffers = new VkCommandBuffer[amountOfImagesInSwapchain];
+	VkResult result = vkAllocateCommandBuffers(device, &commandBufferRenderAllocateInfo, commandBuffers);
+	CHECK_FOR_CRASH(result);
+
+	//CommandBuffer für Light Culling
+	VkCommandBufferAllocateInfo commandBufferLightCullingAllocateInfo;
+	commandBufferLightCullingAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferLightCullingAllocateInfo.pNext = nullptr;
+	commandBufferLightCullingAllocateInfo.commandPool = commandPoolCompute;
+	commandBufferLightCullingAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferLightCullingAllocateInfo.commandBufferCount = 1;
+
+	result = vkAllocateCommandBuffers(device, &commandBufferLightCullingAllocateInfo, &lightCullingCommandBuffer);
+	CHECK_FOR_CRASH(result);
+
+	//CommandBuffer für Depth Prepass
+	VkCommandBufferAllocateInfo commandBufferDepthAllocateInfo;
+	commandBufferDepthAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+	commandBufferDepthAllocateInfo.pNext = nullptr;
+	commandBufferDepthAllocateInfo.commandPool = commandPool;
+	commandBufferDepthAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+	commandBufferDepthAllocateInfo.commandBufferCount = 1;
+
+	result = vkAllocateCommandBuffers(device, &commandBufferDepthAllocateInfo, &depthPrepassCommandBuffer);
+	CHECK_FOR_CRASH(result);
+}
+
+void createDepthImage() { //aka Z-Buffer
+	depthImage.create(device, physicalDevice, commandPool, queue, windowWidth, windowHeight);
 }
 
 void createFramebuffers() {
@@ -827,292 +880,16 @@ void createFramebuffers() {
 
 	VkResult result = vkCreateFramebuffer(device, &depthFramebufferCreateInfo, nullptr, &depthFramebuffer);
 	CHECK_FOR_CRASH(result);
-
-}
-
-void createPipelineCompute() {
-	VkPushConstantRange pushConstantRange;
-	pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-	pushConstantRange.offset = 0;
-	pushConstantRange.size = sizeof(PushConstantObject);
-
-	std::vector<VkDescriptorSetLayout> allSetLayoutsForCompute;
-	allSetLayoutsForCompute.push_back(descriptorSetLayoutLightCulling);
-	allSetLayoutsForCompute.push_back(descriptorSetLayoutCamera);
-	allSetLayoutsForCompute.push_back(descriptorSetLayoutIntermediate);
-
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo;
-	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.pNext = nullptr;
-	pipelineLayoutCreateInfo.flags = 0;
-	pipelineLayoutCreateInfo.setLayoutCount = allSetLayoutsForCompute.size();
-	pipelineLayoutCreateInfo.pSetLayouts = allSetLayoutsForCompute.data();
-	pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-	pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
-
-	VkResult result = vkCreatePipelineLayout(device, &pipelineLayoutCreateInfo, nullptr, &pipelineLayoutCompute);
-	CHECK_FOR_CRASH(result);
-
-
-	auto shaderCodeCompute = readFile("comp.spv");
-	createShaderModule(shaderCodeCompute, &shaderModuleComp);
-
-	VkPipelineShaderStageCreateInfo pipelineShaderStageCreateInfoCompute;
-	pipelineShaderStageCreateInfoCompute.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	pipelineShaderStageCreateInfoCompute.pNext = nullptr;
-	pipelineShaderStageCreateInfoCompute.flags = 0;
-	pipelineShaderStageCreateInfoCompute.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-	pipelineShaderStageCreateInfoCompute.module = shaderModuleComp;
-	pipelineShaderStageCreateInfoCompute.pName = "main";
-	pipelineShaderStageCreateInfoCompute.pSpecializationInfo = nullptr;
-
-	VkComputePipelineCreateInfo pipelineCreateInfoCompute;
-	pipelineCreateInfoCompute.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-	pipelineCreateInfoCompute.pNext = nullptr;
-	pipelineCreateInfoCompute.flags = 0;
-	pipelineCreateInfoCompute.stage = pipelineShaderStageCreateInfoCompute;
-	pipelineCreateInfoCompute.layout = pipelineLayoutCompute;
-	pipelineCreateInfoCompute.basePipelineHandle = VK_NULL_HANDLE;
-	pipelineCreateInfoCompute.basePipelineIndex = -1;
-
-	result = vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipelineCreateInfoCompute, nullptr, &pipelineCompute);
-	CHECK_FOR_CRASH(result);
-}
-
-void createLightCullingDescriptorSet() {
-	//light visiblity descriptor sets for both passes
-	//create shared dercriptor set between compute and rendering pipeline
-	VkDescriptorSetAllocateInfo allocateInfo;
-	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-	allocateInfo.pNext = nullptr;
-	allocateInfo.descriptorPool = descriptorPool;
-	allocateInfo.descriptorSetCount = 1;
-	allocateInfo.pSetLayouts = &descriptorSetLayoutLightCulling;
-
-	vkAllocateDescriptorSets(device, &allocateInfo, &lightCullingDescriptorSet);
-}
-
-// just for sizing information
-struct _Dummy_VisibleLightsForTile {
-	uint32_t count;
-	std::array<uint32_t, MAX_POINT_LIGHT_PER_TILE> lightIndices;
-};
-
-void createLightVisibilityBuffer() {
-	assert(sizeof(_Dummy_VisibleLightsForTile) == sizeof(int)*(MAX_POINT_LIGHT_PER_TILE + 1));
-
-	tileCountPerRow = (windowWidth - 1) / TILE_SIZE + 1;
-	tileCountPerCol = (windowHeight - 1) / TILE_SIZE + 1;
-
-	lightVisibilityBufferSize = sizeof(_Dummy_VisibleLightsForTile) * tileCountPerRow * tileCountPerCol;
-
-	createBuffer(device, physicalDevice, lightVisibilityBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-		lightVisibilityBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, lightVisibilityBufferMemory); //TODO
-
-	// Write desciptor set in compute shader
-	VkDescriptorBufferInfo lightVisibilityBufferInfo;
-	lightVisibilityBufferInfo.buffer = lightVisibilityBuffer;
-	lightVisibilityBufferInfo.offset = 0;
-	lightVisibilityBufferInfo.range = lightVisibilityBufferSize;
-
-	VkDescriptorBufferInfo pointLightBufferInfo;
-	pointLightBufferInfo.buffer = pointlightBuffer;
-	pointLightBufferInfo.offset = 0;
-	pointLightBufferInfo.range = pointlightBufferSize;
-
-	std::vector<VkWriteDescriptorSet> descriptorWrites;
-	VkWriteDescriptorSet writeLightVisibilityDescriptorSet;
-	writeLightVisibilityDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	writeLightVisibilityDescriptorSet.pNext = nullptr;
-	writeLightVisibilityDescriptorSet.dstSet = lightCullingDescriptorSet;
-	writeLightVisibilityDescriptorSet.dstBinding = 0;
-	writeLightVisibilityDescriptorSet.dstArrayElement = 0;
-	writeLightVisibilityDescriptorSet.descriptorCount = 1;
-	writeLightVisibilityDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	writeLightVisibilityDescriptorSet.pImageInfo = nullptr;
-	writeLightVisibilityDescriptorSet.pBufferInfo = &lightVisibilityBufferInfo;
-	writeLightVisibilityDescriptorSet.pTexelBufferView = nullptr;
-
-	VkWriteDescriptorSet writePointlightDescriptorSet;
-	writePointlightDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-	writePointlightDescriptorSet.pNext = nullptr;
-	writePointlightDescriptorSet.dstSet = lightCullingDescriptorSet;
-	writePointlightDescriptorSet.dstBinding = 1;
-	writePointlightDescriptorSet.dstArrayElement = 0;
-	writePointlightDescriptorSet.descriptorCount = 1;
-	writePointlightDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; //TODO evtl uniform
-	writePointlightDescriptorSet.pImageInfo = nullptr;
-	writePointlightDescriptorSet.pBufferInfo = &pointLightBufferInfo;
-	writePointlightDescriptorSet.pTexelBufferView = nullptr;
-
-	descriptorWrites.emplace_back(writeLightVisibilityDescriptorSet);
-	descriptorWrites.emplace_back(writePointlightDescriptorSet);
-
-	vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
-	//vkUpdateDescriptorSets(device, 1, &writeLightVisibilityDescriptorSet, 0, nullptr);
-	//vkUpdateDescriptorSets(device, 1, &writePointlightDescriptorSet, 0, nullptr);
-}
-
-void createLightCullingCommandBuffer() {
-	VkCommandBufferAllocateInfo allocateInfo;
-	allocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	allocateInfo.pNext = nullptr;
-	allocateInfo.commandPool = commandPoolCompute;
-	allocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	allocateInfo.commandBufferCount = 1;
-
-	VkResult result = vkAllocateCommandBuffers(device, &allocateInfo, &lightCullingCommandBuffer);
-	CHECK_FOR_CRASH(result);
-
-	VkCommandBufferBeginInfo beginInfo;
-	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-	beginInfo.pNext = nullptr;
-	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
-	beginInfo.pInheritanceInfo = nullptr;
-
-	result = vkBeginCommandBuffer(lightCullingCommandBuffer, &beginInfo);
-	CHECK_FOR_CRASH(result);
-
-	//using barriers, since sharing mode when allocating memory is exclusive
-	std::vector<VkBufferMemoryBarrier> barriersBefore;
-	VkBufferMemoryBarrier lightVisibilityBarrierBefore;
-	lightVisibilityBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	lightVisibilityBarrierBefore.pNext = nullptr;
-	lightVisibilityBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	lightVisibilityBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-	lightVisibilityBarrierBefore.srcQueueFamilyIndex = graphicsQueueIndex; //todo
-	lightVisibilityBarrierBefore.dstQueueFamilyIndex = computeQueueIndex; //todo choose correct queue family index
-	lightVisibilityBarrierBefore.buffer = lightVisibilityBuffer;
-	lightVisibilityBarrierBefore.offset = 0;
-	lightVisibilityBarrierBefore.size = lightVisibilityBufferSize;
-
-	VkBufferMemoryBarrier pointlightBarrierBefore;
-	pointlightBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	pointlightBarrierBefore.pNext = nullptr;
-	pointlightBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	pointlightBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-	pointlightBarrierBefore.srcQueueFamilyIndex = graphicsQueueIndex; //todo
-	pointlightBarrierBefore.dstQueueFamilyIndex = computeQueueIndex;  //todo
-	pointlightBarrierBefore.buffer = pointlightBuffer;
-	pointlightBarrierBefore.offset = 0;
-	pointlightBarrierBefore.size = pointlightBufferSize;
-
-	barriersBefore.emplace_back(lightVisibilityBarrierBefore);
-	barriersBefore.emplace_back(pointlightBarrierBefore);
-
-	//barrier
-	vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VkDependencyFlags(), 0,
-		nullptr, barriersBefore.size(), barriersBefore.data(), 0, nullptr);
-	
-	std::array<VkDescriptorSet, 3> allSetsForCompute = {lightCullingDescriptorSet, cameraDescriptorSet, intermediateDescriptorSet};
-
-	vkCmdBindDescriptorSets(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayoutCompute, 0, 
-		allSetsForCompute.size(), allSetsForCompute.data(), 0, nullptr);
-
-	PushConstantObject pco = { static_cast<int> (windowWidth), static_cast<int> (windowHeight), tileCountPerRow, tileCountPerCol };
-	vkCmdPushConstants(lightCullingCommandBuffer, pipelineLayoutCompute, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pco), &pco);
-	vkCmdBindPipeline(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineCompute);
-	vkCmdDispatch(lightCullingCommandBuffer, tileCountPerRow, tileCountPerCol, 1);
-	
-
-
-	std::vector<VkBufferMemoryBarrier> barriersAfter;
-	VkBufferMemoryBarrier lightVisibilityBarrierAfter;
-	lightVisibilityBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	lightVisibilityBarrierAfter.pNext = nullptr;
-	lightVisibilityBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-	lightVisibilityBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	lightVisibilityBarrierAfter.srcQueueFamilyIndex = computeQueueIndex; //todo
-	lightVisibilityBarrierAfter.dstQueueFamilyIndex = graphicsQueueIndex; //todo
-	lightVisibilityBarrierAfter.buffer = lightVisibilityBuffer;
-	lightVisibilityBarrierAfter.offset = 0;
-	lightVisibilityBarrierAfter.size = lightVisibilityBufferSize;
-	
-
-	VkBufferMemoryBarrier pointlightBarrierAfter;
-	pointlightBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	pointlightBarrierAfter.pNext = nullptr;
-	pointlightBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-	pointlightBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-	pointlightBarrierAfter.srcQueueFamilyIndex = computeQueueIndex;  //todo
-	pointlightBarrierAfter.dstQueueFamilyIndex = graphicsQueueIndex; //todo
-	pointlightBarrierAfter.buffer = pointlightBuffer;
-	pointlightBarrierAfter.offset = 0;
-	pointlightBarrierAfter.size = pointlightBufferSize;
-
-	barriersAfter.emplace_back(lightVisibilityBarrierAfter);
-	barriersAfter.emplace_back(pointlightBarrierAfter);
-
-	vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VkDependencyFlags(), 0,
-		nullptr, barriersAfter.size(), barriersAfter.data(), 0, nullptr);
-
-	vkEndCommandBuffer(lightCullingCommandBuffer);
-}
-
-void createDepthImage() { //aka Z-Buffer
-	depthImage.create(device, physicalDevice, commandPool, queue, windowWidth, windowHeight);
-}
-
-void createCommandPool() {
-	VkCommandPoolCreateInfo commandPoolCreateInfo;
-	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	commandPoolCreateInfo.pNext = nullptr;
-	commandPoolCreateInfo.flags = 0;
-	commandPoolCreateInfo.queueFamilyIndex = graphicsQueueIndex; //TODO CIV nur Queue mit VK_QUEUE_GRAPHICS_BIT
-
-	VkResult result = vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr, &commandPool);
-	CHECK_FOR_CRASH(result);
-
-	VkCommandPoolCreateInfo commandPoolCreateInfoCompute;
-	commandPoolCreateInfoCompute.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-	commandPoolCreateInfoCompute.pNext = nullptr;
-	commandPoolCreateInfoCompute.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-	commandPoolCreateInfoCompute.queueFamilyIndex = computeQueueIndex; //TODO CIV nur Queue mit VK_QUEUE_COMPUTE_BIT
-
-	result = vkCreateCommandPool(device, &commandPoolCreateInfoCompute, nullptr, &commandPoolCompute);
-	CHECK_FOR_CRASH(result);
-}
-
-void createCommandBuffers() {
-	VkCommandBufferAllocateInfo commandBufferAllocateInfo;
-	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	commandBufferAllocateInfo.pNext = nullptr;
-	commandBufferAllocateInfo.commandPool = commandPool;
-	commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	commandBufferAllocateInfo.commandBufferCount = amountOfImagesInSwapchain;
-
-	commandBuffers = new VkCommandBuffer[amountOfImagesInSwapchain];
-	VkResult result = vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, commandBuffers);
-	CHECK_FOR_CRASH(result);
-}
-
-void loadTexture() {
-	ezImage.load("../blank.jpg");
-	ezImage.upload(device, physicalDevice, commandPool, queue);
-}
-
-void loadMesh() {
-	dragonMesh.loadModelFromFile(device, physicalDevice, queue, commandPool, "meshes/dragon.obj", descriptorPool); //TODO
-	vertices = dragonMesh.getVertices();
-	indices = dragonMesh.getIndices();
-}
-
-void createVertexBuffer() {
-	createAndUploadBuffer(device, physicalDevice, queue, commandPool, vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer, vertexBufferDeviceMemory);
-}
-
-void createIndexBuffer() {
-	createAndUploadBuffer(device, physicalDevice, queue, commandPool, indices, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer, indexBufferDeviceMemory);
 }
 
 void createUniformBuffer() {
 	VkDeviceSize bufferSize = sizeof(ubo);
-	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, stagingBuffer,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBufferMemory);
 
-	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, uniformBuffer,
 		/*VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT*/ VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, uniformBufferMemory);
-	
+
 
 	ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(sceneConfiguration.scale));
 	void* data;
@@ -1123,28 +900,39 @@ void createUniformBuffer() {
 
 	//Camera buffer
 	bufferSize = sizeof(CameraUbo);
-	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,	//TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, cameraStagingBuffer,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, cameraStagingBufferMemory);
 
-	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cameraUniformBuffer, //TODO 0
+	createBuffer(device, physicalDevice, bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, cameraUniformBuffer,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, cameraUniformBufferMemory);
 }
 
 void createLights() {
 	for (int i = 0; i < MAX_POINT_LIGHT_COUNT; i++) {
 		glm::vec3 color;
-		do { color = { glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)) }; } 
-		while (color.length() < 0.8f);
+		do { color = { glm::linearRand(glm::vec3(0, 0, 0), glm::vec3(1, 1, 1)) }; } while (color.length() < 0.8f);
 		//emplace_back(minLightPos, maxLightPos, lightRadius, color)
-		pointLights.emplace_back(glm::linearRand(sceneConfiguration.minLightPos, sceneConfiguration.maxLightPos), sceneConfiguration.lightRadius, color); 
+		pointLights.emplace_back(glm::linearRand(sceneConfiguration.minLightPos, sceneConfiguration.maxLightPos), sceneConfiguration.lightRadius, color);
 	}
 
 	pointlightBufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
 	createBuffer(device, physicalDevice, pointlightBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, lightStagingBuffer,
 		VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, lightStagingBufferMemory);
 
-	createBuffer(device, physicalDevice, pointlightBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer, 
-		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory); //TODO physDev[0] und vll storage zu uniform
+	createBuffer(device, physicalDevice, pointlightBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, pointlightBuffer,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, pointlightBufferMemory);
+}
+
+void loadTexture() {
+	ezImage.load("../blank.jpg");
+	ezImage.upload(device, physicalDevice, commandPool, queue);
+}
+
+void loadMesh() {
+	mesh.loadModelFromFile(device, physicalDevice, queue, commandPool, "meshes/city.obj", descriptorPool);
+	sceneConfiguration.scale = 0.08f;
+	vertices = mesh.getVertices();
+	indices = mesh.getIndices();
 }
 
 void createDescriptorPool() {
@@ -1152,10 +940,10 @@ void createDescriptorPool() {
 
 	poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 	poolSizes[0].descriptorCount = 100;
-	poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	poolSizes[1].descriptorCount = 100;
-	poolSizes[2].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-	poolSizes[2].descriptorCount = 3;
+	poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	poolSizes[1].descriptorCount = 3;
+	poolSizes[2].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+	poolSizes[2].descriptorCount = 100;
 
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo;
 	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1167,34 +955,6 @@ void createDescriptorPool() {
 
 	VkResult result = vkCreateDescriptorPool(device, &descriptorPoolCreateInfo, nullptr, &descriptorPool);
 	CHECK_FOR_CRASH(result);
-
-
-	/*VkDescriptorPoolSize descriptorPoolSize;
-	descriptorPoolSize.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-	descriptorPoolSize.descriptorCount = 1;
-
-	VkDescriptorPoolSize samplerPoolSize;
-	samplerPoolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-	samplerPoolSize.descriptorCount = 1;
-
-	VkDescriptorPoolSize storagePoolSize;
-	storagePoolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-
-	std::vector<VkDescriptorPoolSize> descriptorPoolSizes;
-	descriptorPoolSizes.push_back(descriptorPoolSize);
-	descriptorPoolSizes.push_back(samplerPoolSize);
-	descriptorPoolSizes.push_back(storagePoolSize);
-
-	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo;
-	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-	descriptorPoolCreateInfo.pNext = nullptr;
-	descriptorPoolCreateInfo.flags = 0;
-	descriptorPoolCreateInfo.maxSets = 200;
-	descriptorPoolCreateInfo.poolSizeCount = descriptorPoolSizes.size();
-	descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes.data();
-
-	VkResult result = vkCreateDescriptorPool(device, &descriptorPoolCreateInfo, nullptr, &descriptorPool);
-	CHECK_FOR_CRASH(result);*/
 }
 
 void createDescriptorSet() {
@@ -1225,7 +985,7 @@ void createDescriptorSet() {
 	descriptorWrite.pBufferInfo = &descriptorBufferInfo;
 	descriptorWrite.pTexelBufferView = nullptr;
 
-	VkDescriptorImageInfo descriptorImageInfo;
+	/*VkDescriptorImageInfo descriptorImageInfo;
 	descriptorImageInfo.sampler = ezImage.getSampler();
 	descriptorImageInfo.imageView = ezImage.getImageView();
 	descriptorImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1240,13 +1000,26 @@ void createDescriptorSet() {
 	descriptorSampler.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	descriptorSampler.pImageInfo = &descriptorImageInfo;
 	descriptorSampler.pBufferInfo = nullptr;
-	descriptorSampler.pTexelBufferView = nullptr;
+	descriptorSampler.pTexelBufferView = nullptr;*/
 
 	std::vector<VkWriteDescriptorSet> writeDescriptorSets;
 	writeDescriptorSets.push_back(descriptorWrite);
-	writeDescriptorSets.push_back(descriptorSampler);
+	//writeDescriptorSets.push_back(descriptorSampler);
 
 	vkUpdateDescriptorSets(device, writeDescriptorSets.size(), writeDescriptorSets.data(), 0, nullptr);
+}
+
+void createLightCullingDescriptorSet() {
+	//light visiblity descriptor sets für beide Passes
+	//erstelle set welches sowohl compute und rendering pipeline verwenden
+	VkDescriptorSetAllocateInfo allocateInfo;
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.pNext = nullptr;
+	allocateInfo.descriptorPool = descriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &descriptorSetLayoutLightCulling;
+
+	vkAllocateDescriptorSets(device, &allocateInfo, &lightCullingDescriptorSet);
 }
 
 void createCameraDescriptorSet() {
@@ -1272,7 +1045,7 @@ void createCameraDescriptorSet() {
 	descriptorWrite.dstBinding = 0;
 	descriptorWrite.dstArrayElement = 0;
 	descriptorWrite.descriptorCount = 1;
-	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; //TODO maybe storage?
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
 	descriptorWrite.pImageInfo = nullptr;
 	descriptorWrite.pBufferInfo = &descriptorBufferInfo;
 	descriptorWrite.pTexelBufferView = nullptr;
@@ -1280,32 +1053,33 @@ void createCameraDescriptorSet() {
 	vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 }
 
-void createIntermediateDescriptorSet() {
+void createDepthDescriptorSet() {
 	VkDescriptorSetAllocateInfo descriptorSetAllocateInfo;
 	descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
 	descriptorSetAllocateInfo.pNext = nullptr;
 	descriptorSetAllocateInfo.descriptorPool = descriptorPool;
 	descriptorSetAllocateInfo.descriptorSetCount = 1;
-	descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayoutIntermediate;
+	descriptorSetAllocateInfo.pSetLayouts = &descriptorSetLayoutDepth;
 
-	VkResult result = vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &intermediateDescriptorSet);
+	VkResult result = vkAllocateDescriptorSets(device, &descriptorSetAllocateInfo, &depthDescriptorSet);
 	CHECK_FOR_CRASH(result);
 }
 
-void updateIntermediateDescriptorSet() {
+//eigene Methode, braucht update wenn Swapchain outdated ist
+void updateDepthDescriptorSet() {
 	VkDescriptorImageInfo depthImageInfo;
 	depthImageInfo.sampler = ezImage.getSampler();
 	depthImageInfo.imageView = depthImage.getImageView();
-	depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL; //VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL; TODO==========================
+	depthImageInfo.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
 
 	VkWriteDescriptorSet descriptorWrite;
 	descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 	descriptorWrite.pNext = nullptr;
-	descriptorWrite.dstSet = intermediateDescriptorSet;
+	descriptorWrite.dstSet = depthDescriptorSet;
 	descriptorWrite.dstBinding = 0;
 	descriptorWrite.dstArrayElement = 0;
 	descriptorWrite.descriptorCount = 1;
-	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; //TODO maybe uniform?
+	descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 	descriptorWrite.pImageInfo = &depthImageInfo;
 	descriptorWrite.pBufferInfo = nullptr;
 	descriptorWrite.pTexelBufferView = nullptr;
@@ -1313,33 +1087,175 @@ void updateIntermediateDescriptorSet() {
 	vkUpdateDescriptorSets(device, 1, &descriptorWrite, 0, nullptr);
 }
 
-void createDepthPrePassCommandBuffer() {
-	if (depthPrepassCommandBuffer) {
-		vkFreeCommandBuffers(device, commandPool, 1, &depthPrepassCommandBuffer);
-		depthPrepassCommandBuffer = nullptr;
-	}
+//für Größeninfos
+struct VisibleLightsForTile {
+	uint32_t count; //Anzahl aktueller Lichter pro tile
+	std::array<uint32_t, MAX_POINT_LIGHT_PER_TILE> lightIndices; //Array der Lichtindices
+};
 
-	VkCommandBufferAllocateInfo commandBufferAllocateInfo;
-	commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-	commandBufferAllocateInfo.pNext = nullptr;
-	commandBufferAllocateInfo.commandPool = commandPool;
-	commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-	commandBufferAllocateInfo.commandBufferCount = 1;
+void createLightVisibilityBuffer() {
+	assert(sizeof(VisibleLightsForTile) == sizeof(int)*(MAX_POINT_LIGHT_PER_TILE + 1));
 
-	VkResult result = vkAllocateCommandBuffers(device, &commandBufferAllocateInfo, &depthPrepassCommandBuffer);
+	//tileCountPerRow = (windowWidth - 1) / TILE_SIZE + 1;
+	//tileCountPerCol = (windowHeight - 1) / TILE_SIZE + 1;
+	tileCountPerRow = windowWidth / TILE_SIZE;
+	tileCountPerCol = windowHeight / TILE_SIZE;
+
+	lightVisibilityBufferSize = sizeof(VisibleLightsForTile) * tileCountPerRow * tileCountPerCol;
+
+	createBuffer(device, physicalDevice, lightVisibilityBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		lightVisibilityBuffer, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, lightVisibilityBufferMemory); 
+
+	//Schreibe Set in Computeshader
+	VkDescriptorBufferInfo lightVisibilityBufferInfo;
+	lightVisibilityBufferInfo.buffer = lightVisibilityBuffer;
+	lightVisibilityBufferInfo.offset = 0;
+	lightVisibilityBufferInfo.range = lightVisibilityBufferSize;
+
+	VkDescriptorBufferInfo pointLightBufferInfo;
+	pointLightBufferInfo.buffer = pointlightBuffer;
+	pointLightBufferInfo.offset = 0;
+	pointLightBufferInfo.range = pointlightBufferSize;
+
+	std::vector<VkWriteDescriptorSet> descriptorWrites;
+	VkWriteDescriptorSet writeLightVisibilityDescriptorSet;
+	writeLightVisibilityDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writeLightVisibilityDescriptorSet.pNext = nullptr;
+	writeLightVisibilityDescriptorSet.dstSet = lightCullingDescriptorSet;
+	writeLightVisibilityDescriptorSet.dstBinding = 0;
+	writeLightVisibilityDescriptorSet.dstArrayElement = 0;
+	writeLightVisibilityDescriptorSet.descriptorCount = 1;
+	writeLightVisibilityDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+	writeLightVisibilityDescriptorSet.pImageInfo = nullptr;
+	writeLightVisibilityDescriptorSet.pBufferInfo = &lightVisibilityBufferInfo;
+	writeLightVisibilityDescriptorSet.pTexelBufferView = nullptr;
+
+	VkWriteDescriptorSet writePointlightDescriptorSet;
+	writePointlightDescriptorSet.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+	writePointlightDescriptorSet.pNext = nullptr;
+	writePointlightDescriptorSet.dstSet = lightCullingDescriptorSet;
+	writePointlightDescriptorSet.dstBinding = 1;
+	writePointlightDescriptorSet.dstArrayElement = 0;
+	writePointlightDescriptorSet.descriptorCount = 1;
+	writePointlightDescriptorSet.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; 
+	writePointlightDescriptorSet.pImageInfo = nullptr;
+	writePointlightDescriptorSet.pBufferInfo = &pointLightBufferInfo;
+	writePointlightDescriptorSet.pTexelBufferView = nullptr;
+
+	descriptorWrites.emplace_back(writeLightVisibilityDescriptorSet);
+	descriptorWrites.emplace_back(writePointlightDescriptorSet);
+
+	vkUpdateDescriptorSets(device, descriptorWrites.size(), descriptorWrites.data(), 0, nullptr);
+}
+
+void recordLightCullingCommandBuffer() {
+	VkCommandBufferBeginInfo beginInfo;
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.pNext = nullptr;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+	beginInfo.pInheritanceInfo = nullptr;
+
+	VkResult result = vkBeginCommandBuffer(lightCullingCommandBuffer, &beginInfo);
 	CHECK_FOR_CRASH(result);
 
+	//Barriers, da sharing mode beim Allokieren exklusiv ist
+	//Hier nicht nötig, da nur eine Queue verwendet
+
+	/*std::vector<VkBufferMemoryBarrier> barriersBefore;
+	VkBufferMemoryBarrier lightVisibilityBarrierBefore;
+	lightVisibilityBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	lightVisibilityBarrierBefore.pNext = nullptr;
+	lightVisibilityBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	lightVisibilityBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	lightVisibilityBarrierBefore.srcQueueFamilyIndex = graphicsQueueIndex; 
+	lightVisibilityBarrierBefore.dstQueueFamilyIndex = computeQueueIndex; 
+	lightVisibilityBarrierBefore.buffer = lightVisibilityBuffer;
+	lightVisibilityBarrierBefore.offset = 0;
+	lightVisibilityBarrierBefore.size = lightVisibilityBufferSize;
+
+	VkBufferMemoryBarrier pointlightBarrierBefore;
+	pointlightBarrierBefore.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	pointlightBarrierBefore.pNext = nullptr;
+	pointlightBarrierBefore.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	pointlightBarrierBefore.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	pointlightBarrierBefore.srcQueueFamilyIndex = graphicsQueueIndex; //todo
+	pointlightBarrierBefore.dstQueueFamilyIndex = computeQueueIndex;  //todo
+	pointlightBarrierBefore.buffer = pointlightBuffer;
+	pointlightBarrierBefore.offset = 0;
+	pointlightBarrierBefore.size = pointlightBufferSize;
+
+	barriersBefore.emplace_back(lightVisibilityBarrierBefore);
+	barriersBefore.emplace_back(pointlightBarrierBefore);*/
+
+	//barrier
+	/*vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VkDependencyFlags(), 0,
+		nullptr, barriersBefore.size(), barriersBefore.data(), 0, nullptr);*/
+	
+	std::array<VkDescriptorSet, 3> allSetsForCompute = {lightCullingDescriptorSet, cameraDescriptorSet, depthDescriptorSet};
+
+	vkCmdBindDescriptorSets(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.getComputeLayout(), 0, 
+		allSetsForCompute.size(), allSetsForCompute.data(), 0, nullptr);
+
+	PushConstantObject pco = { static_cast<int> (windowWidth), static_cast<int> (windowHeight), tileCountPerRow, tileCountPerCol }; 
+	vkCmdPushConstants(lightCullingCommandBuffer, pipeline.getComputeLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(pco), &pco);
+	vkCmdBindPipeline(lightCullingCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.getComputePipeline());
+	vkCmdDispatch(lightCullingCommandBuffer, tileCountPerRow, tileCountPerCol, 1);
+
+	//Nicht nötig da nur eine Queue
+	/*std::vector<VkBufferMemoryBarrier> barriersAfter;
+	VkBufferMemoryBarrier lightVisibilityBarrierAfter;
+	lightVisibilityBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	lightVisibilityBarrierAfter.pNext = nullptr;
+	lightVisibilityBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	lightVisibilityBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	lightVisibilityBarrierAfter.srcQueueFamilyIndex = computeQueueIndex; 
+	lightVisibilityBarrierAfter.dstQueueFamilyIndex = graphicsQueueIndex; 
+	lightVisibilityBarrierAfter.buffer = lightVisibilityBuffer;
+	lightVisibilityBarrierAfter.offset = 0;
+	lightVisibilityBarrierAfter.size = lightVisibilityBufferSize;
+	
+
+	VkBufferMemoryBarrier pointlightBarrierAfter;
+	pointlightBarrierAfter.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+	pointlightBarrierAfter.pNext = nullptr;
+	pointlightBarrierAfter.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+	pointlightBarrierAfter.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	pointlightBarrierAfter.srcQueueFamilyIndex = computeQueueIndex;  
+	pointlightBarrierAfter.dstQueueFamilyIndex = graphicsQueueIndex; 
+	pointlightBarrierAfter.buffer = pointlightBuffer;
+	pointlightBarrierAfter.offset = 0;
+	pointlightBarrierAfter.size = pointlightBufferSize;
+
+	barriersAfter.emplace_back(lightVisibilityBarrierAfter);
+	barriersAfter.emplace_back(pointlightBarrierAfter);*/
+
+	/*vkCmdPipelineBarrier(lightCullingCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VkDependencyFlags(), 0,
+		nullptr, barriersAfter.size(), barriersAfter.data(), 0, nullptr);*/
+
+	vkEndCommandBuffer(lightCullingCommandBuffer);
+}
+
+//Passiert in loadMesh
+/*void createVertexBuffer() {
+	createAndUploadBuffer(device, physicalDevice, queue, commandPool, vertices, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, vertexBuffer, vertexBufferDeviceMemory);
+}
+
+void createIndexBuffer() {
+	createAndUploadBuffer(device, physicalDevice, queue, commandPool, indices, VK_BUFFER_USAGE_INDEX_BUFFER_BIT, indexBuffer, indexBufferDeviceMemory);
+}*/
+
+void recordDepthPrePassCommandBuffer() {
 	VkCommandBufferBeginInfo commandBufferBeginInfo;
 	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	commandBufferBeginInfo.pNext = nullptr;
 	commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
 	commandBufferBeginInfo.pInheritanceInfo = nullptr;
 
-	result = vkBeginCommandBuffer(depthPrepassCommandBuffer, &commandBufferBeginInfo);
+	VkResult result = vkBeginCommandBuffer(depthPrepassCommandBuffer, &commandBufferBeginInfo);
 	CHECK_FOR_CRASH(result);
 
 	VkClearDepthStencilValue clearDepthValue;
-	clearDepthValue.depth = 1.0f; // 1.0f is far clipping plane
+	clearDepthValue.depth = 1.0f; // 1.0f ist far clipping plane
 	clearDepthValue.stencil = 0;
 
 	VkClearValue clearValue;
@@ -1356,11 +1272,12 @@ void createDepthPrePassCommandBuffer() {
 	depthPrepassInfo.framebuffer = depthFramebuffer;
 	depthPrepassInfo.renderArea = renderArea;
 	depthPrepassInfo.clearValueCount = 1;
-	depthPrepassInfo.pClearValues = &clearValue;
+	depthPrepassInfo.pClearValues = &clearValue; 
 
 	vkCmdBeginRenderPass(depthPrepassCommandBuffer, &depthPrepassInfo, VK_SUBPASS_CONTENTS_INLINE);
 	
-	for (const auto& part : dragonMesh.getMeshParts()) {
+	//eine Iteration, nur für einfacheren Zugriff auf Meshparts über "part" statt immer mesh.getMeshParts().
+	for (const auto& part : mesh.getMeshParts() ) {
 		vkCmdBindPipeline(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getDepthPipeline());
 		std::array<VkDescriptorSet, 2> depthDescriptorSets = { descriptorSet, cameraDescriptorSet };
 		vkCmdBindDescriptorSets(depthPrepassCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getDepthLayout(), 0, depthDescriptorSets.size(), depthDescriptorSets.data(), 0, nullptr);
@@ -1372,12 +1289,13 @@ void createDepthPrePassCommandBuffer() {
 
 		vkCmdDrawIndexed(depthPrepassCommandBuffer, part.indexCount, 1, 0, 0, 0);
 	}
+
 	vkCmdEndRenderPass(depthPrepassCommandBuffer);
 	result = vkEndCommandBuffer(depthPrepassCommandBuffer);
 
 }
 
-void recordCommandBuffers() {
+void recordRenderCommandBuffers() {
 	VkCommandBufferBeginInfo commandBufferBeginInfo;
 	commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 	commandBufferBeginInfo.pNext = nullptr;
@@ -1396,7 +1314,7 @@ void recordCommandBuffers() {
 		renderPassBeginInfo.renderArea.offset = { 0, 0 };
 		renderPassBeginInfo.renderArea.extent = { windowWidth, windowHeight };
 		VkClearValue clearValue;
-		clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
+		clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f }; //standardfarbe der Szene
 		//VkClearValue depthClearValue = { 1.0f, 0 }; //don't reset with depth prepass!
 		renderPassBeginInfo.clearValueCount = 1;
 		renderPassBeginInfo.pClearValues = &clearValue;
@@ -1423,46 +1341,63 @@ void recordCommandBuffers() {
 			static_cast<int>(windowHeight),
 			tileCountPerRow, tileCountPerCol
 		};
-		vkCmdPushConstants(commandBuffers[i], pipeline.getLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pco), &pco);
+		pco.debugviewIndex = debugViewForFragment; //1 2 3 4 = debugview
+		vkCmdPushConstants(commandBuffers[i], pipeline.getGraphicsLayout(), VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pco), &pco);
 
-		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
+		vkCmdBindPipeline(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getGraphicsPipeline());
 		
-		std::array<VkDescriptorSet, 4> descriptorSets = { descriptorSet, lightCullingDescriptorSet, cameraDescriptorSet, intermediateDescriptorSet }; //this order is important, see allSetLayouts in createDescriptorSetLayout()!
-		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, descriptorSets.size(), descriptorSets.data(), 0, nullptr);
+		std::array<VkDescriptorSet, 4> descriptorSets = { descriptorSet, lightCullingDescriptorSet, cameraDescriptorSet, depthDescriptorSet }; //Reihenfolge wichtig, siehe allSetLayouts in createDescriptorSetLayout()!
+		vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getGraphicsLayout(), 0, descriptorSets.size(), descriptorSets.data(), 0, nullptr);
 
-		for (const auto& part : dragonMesh.getMeshParts()) {
+		//eine Iteration, nur für einfacheren Zugriff auf Meshparts über "part" statt immer mesh.getMeshParts().
+		for (const auto& part : mesh.getMeshParts()) {
 			VkBuffer vertexBuffer[] = { part.vertexBufferSection.buffer };
 			VkDeviceSize offsets[] = { part.vertexBufferSection.offset };
 			vkCmdBindVertexBuffers(commandBuffers[i], 0, 1, vertexBuffer, offsets);
 			vkCmdBindIndexBuffer(commandBuffers[i], part.indexBufferSection.buffer, part.indexBufferSection.offset, VK_INDEX_TYPE_UINT32);
-			vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, descriptorSets.size(), descriptorSets.data(), 0, nullptr); //todo necessary?
+			vkCmdBindDescriptorSets(commandBuffers[i], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getGraphicsLayout(), 0, descriptorSets.size(), descriptorSets.data(), 0, nullptr); //todo necessary?
 
 			vkCmdDrawIndexed(commandBuffers[i], part.indexCount, 1, 0, 0, 0);
 			vkCmdEndRenderPass(commandBuffers[i]);
 		}
-
 		result = vkEndCommandBuffer(commandBuffers[i]);
 		CHECK_FOR_CRASH(result);
 	}
 }
 
-void updateUniformBuffers(float deltatime) {
-	static auto startTime = std::chrono::high_resolution_clock::now();
-	auto currentTime = std::chrono::high_resolution_clock::now();
-	float time = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count() / 1000.f;
+void createSemaphores() {
+	VkSemaphoreCreateInfo semaphoreCreateInfo;
+	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+	semaphoreCreateInfo.pNext = nullptr;
+	semaphoreCreateInfo.flags = 0;
 
-	
+
+	VkResult result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreDepthPrepassDone);
+	CHECK_FOR_CRASH(result);
+	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreLightcullingDone);
+	CHECK_FOR_CRASH(result);
+	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreImageAvailable);
+	CHECK_FOR_CRASH(result);
+	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreRenderingDone);
+	CHECK_FOR_CRASH(result);
+}
+
+void updateMVP(float deltatime) {
+	//update model ubo
 	ubo.lightPosition = glm::vec4(0.0f) + glm::rotate(glm::mat4(1.0f), deltatime * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f)) * glm::vec4(0, 3, 1, 0);
 	modelMatrix = glm::mat4(1.0f);
 	modelMatrix = glm::scale(modelMatrix, glm::vec3(sceneConfiguration.scale));
 	modelMatrix = glm::rotate(modelMatrix, deltatime * glm::radians(30.0f), glm::vec3(0, 0, 1.0f));
+	//glm::rotate(welcheMatrix, wieSchnell, welcheAchse)
 	ubo.model = modelMatrix;
 
 	//update camera ubo
-	viewMatrix = glm::lookAt(glm::vec3(0.7f, 7.0f, 5.0f), glm::vec3(0.0f, -3.0f, 0.0f), glm::vec3(0, 0, 1.0f));
+	viewMatrix = glm::lookAt(sceneConfiguration.cameraPosition, glm::vec3(0.0f, -3.0f, 0.0f), glm::vec3(0, 0, 1.0f));
+	//glm::lookAt(cameraPos, schauDahin, upVector)
 	cameraUbo.view = viewMatrix;
-	cameraUbo.proj = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 10.0f);
-	cameraUbo.proj[1][1] *= -1; //Y Axis points down in Vulkan
+	cameraUbo.proj = glm::perspective(glm::radians(60.0f), windowWidth / (float)windowHeight, 0.01f, 100.0f);
+	//glm::perspective(FOV, aspectRatio, nearPlane, farPlane)
+	cameraUbo.proj[1][1] *= -1; //Y Axis zeigt in Vulkan nach unten
 	cameraUbo.projview = cameraUbo.proj * cameraUbo.view;
 	cameraUbo.cameraPos = sceneConfiguration.cameraPosition;
 
@@ -1477,21 +1412,20 @@ void updateUniformBuffers(float deltatime) {
 	memcpy(cameraData, &cameraUbo, sizeof(cameraUbo));
 	vkUnmapMemory(device, cameraStagingBufferMemory);
 	copyBuffer(device, queue, commandPool, cameraStagingBuffer, cameraUniformBuffer, sizeof(cameraUbo), 0, 0);
-	
+}
 
-
+void updateLights() {
 	//update light ubo
 	auto lightNums = static_cast<int>(pointLights.size());
 	VkDeviceSize bufferSize = sizeof(PointLight) * MAX_POINT_LIGHT_COUNT + sizeof(glm::vec4);
 
 	for (int i = 0; i < lightNums; i++) {
-		pointLights[i].pos += glm::vec3(0, 0.2f, 0) /** deltatime*/;
-		//reset lights if Y is too low
+		pointLights[i].pos += glm::vec3(0, 0.2f, 0);
+		//reset Lichter wenn Y zu groß
 		if (pointLights[i].pos.y > sceneConfiguration.maxLightPos.y) {
 			pointLights[i].pos.y -= (sceneConfiguration.maxLightPos.y - sceneConfiguration.minLightPos.y);
 		}
 	}
-	//std::cout << pointLights[0].pos.y << std::endl;
 
 	auto pointlightsSize = sizeof(PointLight) * pointLights.size();
 	void* rawData;
@@ -1500,99 +1434,6 @@ void updateUniformBuffers(float deltatime) {
 	memcpy((char*)rawData + sizeof(glm::vec4), pointLights.data(), pointlightsSize);
 	vkUnmapMemory(device, lightStagingBufferMemory);
 	copyBuffer(device, queue, commandPool, lightStagingBuffer, pointlightBuffer, pointlightBufferSize, 0, 0);
-}
-
-void createSemaphores() {
-	VkSemaphoreCreateInfo semaphoreCreateInfo;
-	semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-	semaphoreCreateInfo.pNext = nullptr;
-	semaphoreCreateInfo.flags = 0;
-
-	VkResult result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreImageAvailable);
-	CHECK_FOR_CRASH(result);
-	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreRenderingDone);
-	CHECK_FOR_CRASH(result);
-	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreLightcullingDone);
-	CHECK_FOR_CRASH(result);
-	result = vkCreateSemaphore(device, &semaphoreCreateInfo, nullptr, &semaphoreDepthPrepassDone);
-	CHECK_FOR_CRASH(result);
-}
-
-
-void startVulkan() {
-	setSceneConfiguration();
-	createInstance();
-	pickPhysicalDevice();
-	printInstanceLayers();
-	printInstanceExtensions();
-	createGlfwWindowSurface();
-	printallPhysicalDevicesStats();
-	createLogicalDevice();
-	createQueue();
-	checkSurfaceSupport();
-	createSwapchain();
-	createImageViews();
-	createRenderPass();
-	createDescriptorSetLayout();
-	createPipeline();
-	createPipelineCompute();
-	createCommandPool();
-	createCommandBuffers();
-	createDepthImage();
-	createFramebuffers();
-	createUniformBuffer();
-	createLights();
-	createDescriptorPool();
-	loadTexture();
-	loadMesh();
-	createVertexBuffer();
-	createIndexBuffer();
-	createDescriptorSet();
-	createLightCullingDescriptorSet();
-	createCameraDescriptorSet();
-	createIntermediateDescriptorSet();
-	updateIntermediateDescriptorSet();
-	createLightVisibilityBuffer();
-	createLightCullingCommandBuffer();
-	createDepthPrePassCommandBuffer();
-	recordCommandBuffers();
-	createSemaphores();
-}
-
-void recreateSwapchain() {
-	vkDeviceWaitIdle(device);
-
-	depthImage.destroy();
-
-	vkFreeCommandBuffers(device, commandPool, amountOfImagesInSwapchain, commandBuffers);
-	delete[] commandBuffers;
-
-	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
-		vkDestroyFramebuffer(device, framebuffers[i], nullptr);
-	}
-	delete[] framebuffers;
-
-	vkDestroyRenderPass(device, renderPass, nullptr);
-	for (int i = 0; i < amountOfImagesInSwapchain; i++) {
-		vkDestroyImageView(device, imageViews[i], nullptr);
-	}
-	delete[] imageViews;
-
-	VkSwapchainKHR oldSwapchain = swapchain;
-
-	createSwapchain();
-	createImageViews();
-	createRenderPass();
-	createDepthImage();
-	createFramebuffers();
-	createLightVisibilityBuffer();
-	updateIntermediateDescriptorSet();
-	createCommandBuffers();
-	createLightCullingCommandBuffer();
-	createDepthPrePassCommandBuffer();
-	recordCommandBuffers();
-
-	vkDestroySwapchainKHR(device, oldSwapchain, nullptr);
 }
 
 void drawFrame() {
@@ -1616,7 +1457,7 @@ void drawFrame() {
 
 	result = vkQueueSubmit(queue, 1, &submitInfoDepthPrepass, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
-	
+
 
 	//Submit lightculling to compute queue
 	VkPipelineStageFlags waitStagesLight[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
@@ -1633,11 +1474,11 @@ void drawFrame() {
 
 	result = vkQueueSubmit(computeQueue, 1, &submitInfoLightculling, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
-	
+
 
 	//Submit Graphics to graphics queue	
 	VkPipelineStageFlags waitStagesRender[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT };
-	VkSemaphore waitSemaphores[] = { semaphoreImageAvailable, semaphoreLightcullingDone }; 
+	VkSemaphore waitSemaphores[] = { semaphoreImageAvailable, semaphoreLightcullingDone };
 	VkSubmitInfo submitInfoRender;
 	submitInfoRender.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfoRender.pNext = nullptr;
@@ -1665,24 +1506,107 @@ void drawFrame() {
 	CHECK_FOR_CRASH(result);
 }
 
-void requestDraw(float deltatime) {
-	updateUniformBuffers(deltatime);
-	drawFrame();
+
+void startVulkan() {
+	setSceneConfiguration();
+	createInstance();
+	pickPhysicalDevice();
+	printInstanceLayers();
+	printInstanceExtensions();
+	createGlfwWindowSurface();
+	printallPhysicalDevicesStats();
+	createLogicalDevice();
+	createQueue();
+	checkSurfaceSupport();
+	createSwapchain();
+	createImageViews();
+	createRenderPasses();
+	createDescriptorSetLayout();
+	createPipelineGraphics();
+	createPipelineCompute();
+	createCommandPool();
+	createCommandBuffers();
+	createDepthImage();
+	createFramebuffers();
+	createUniformBuffer();
+	createLights();
+	loadTexture();
+	loadMesh();
+	//Passiert in loadMesh
+	//createVertexBuffer();
+	//createIndexBuffer();
+	createDescriptorPool();
+	createDescriptorSet();
+	createLightCullingDescriptorSet();
+	createCameraDescriptorSet();
+	createDepthDescriptorSet();
+	updateDepthDescriptorSet();
+	createLightVisibilityBuffer();
+	recordLightCullingCommandBuffer();
+	recordDepthPrePassCommandBuffer();
+	recordRenderCommandBuffers();
+	createSemaphores();
+}
+
+void recreateSwapchain() {
+	vkDeviceWaitIdle(device);
+
+	depthImage.destroy();
+
+	vkFreeCommandBuffers(device, commandPool, amountOfImagesInSwapchain, commandBuffers);
+	delete[] commandBuffers;
+	vkFreeCommandBuffers(device, commandPoolCompute, 1, &lightCullingCommandBuffer);
+	
+	vkFreeMemory(device, lightVisibilityBufferMemory, nullptr);
+	vkDestroyBuffer(device, lightVisibilityBuffer, nullptr);
+
+	for (size_t i = 0; i < amountOfImagesInSwapchain; i++) {
+		vkDestroyFramebuffer(device, framebuffers[i], nullptr);
+	}
+	delete[] framebuffers;
+
+	vkDestroyRenderPass(device, renderPass, nullptr);
+	vkDestroyRenderPass(device, depthPrePass, nullptr);
+	for (int i = 0; i < amountOfImagesInSwapchain; i++) {
+		vkDestroyImageView(device, imageViews[i], nullptr);
+	}
+	delete[] imageViews;
+
+	pipeline.destroy();
+
+	VkSwapchainKHR oldSwapchain = swapchain;
+
+	createSwapchain();
+	createImageViews();
+	createRenderPasses();
+	pipeline.iniGraphics(shaderModuleVert, shaderModuleFrag, shaderModuleDepth, windowWidth, windowHeight);
+	pipeline.createGraphics(device, renderPass, depthPrePass, allSetLayouts);
+	pipeline.iniCompute(allSetLayoutsForCompute, shaderModuleComp);
+	pipeline.createCompute();
+	createDepthImage();
+	createFramebuffers();
+	createLightVisibilityBuffer();
+	updateDepthDescriptorSet();
+	createCommandBuffers();
+	recordLightCullingCommandBuffer();
+	recordDepthPrePassCommandBuffer();
+	recordRenderCommandBuffers();
+
+	vkDestroySwapchainKHR(device, oldSwapchain, nullptr);
 }
 
 void mainLoop() {
-	static auto gameStartTime = std::chrono::high_resolution_clock::now();
-	auto previous = std::chrono::high_resolution_clock::now();
-	decltype(previous) current;
+	auto startTime = std::chrono::high_resolution_clock::now();
+	decltype(startTime) current;
 	float timeSinceStart;
 
-	viewMatrix = glm::lookAt(glm::vec3(0.7f, 0.7f, 0.2f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0, 0, 1.0f));
 	while (!glfwWindowShouldClose(window)) {
 		current = std::chrono::high_resolution_clock::now();
-		timeSinceStart = std::chrono::duration<float>(current - previous).count();
+		timeSinceStart = std::chrono::duration<float>(current - startTime).count();
 		glfwPollEvents();
-		requestDraw(timeSinceStart);
-		
+		updateMVP(timeSinceStart);
+		updateLights();
+		drawFrame();
 	}
 }
 
@@ -1695,15 +1619,11 @@ void shutdownVulkan() {
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutLightCulling, nullptr);
 	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutCamera, nullptr);
-	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutIntermediate, nullptr);
+	vkDestroyDescriptorSetLayout(device, descriptorSetLayoutDepth, nullptr);
 	vkDestroyDescriptorPool(device, descriptorPool, nullptr);
 
 	vkFreeMemory(device, uniformBufferMemory, nullptr);
 	vkDestroyBuffer(device, uniformBuffer, nullptr);
-	vkFreeMemory(device, indexBufferDeviceMemory, nullptr);
-	vkDestroyBuffer(device, indexBuffer, nullptr);
-	vkFreeMemory(device, vertexBufferDeviceMemory, nullptr);
-	vkDestroyBuffer(device, vertexBuffer, nullptr);
 	vkFreeMemory(device, lightVisibilityBufferMemory, nullptr);
 	vkDestroyBuffer(device, lightVisibilityBuffer, nullptr);
 	vkFreeMemory(device, pointlightBufferMemory, nullptr);
@@ -1716,7 +1636,7 @@ void shutdownVulkan() {
 	vkDestroyBuffer(device, cameraUniformBuffer, nullptr);
 	vkFreeMemory(device, lightStagingBufferMemory, nullptr);
 	vkDestroyBuffer(device, lightStagingBuffer, nullptr);
-	dragonMesh.cleanup(device);
+	mesh.cleanup(device);
 
 	ezImage.destroy();
 
@@ -1736,11 +1656,7 @@ void shutdownVulkan() {
 	delete[] framebuffers;
 	vkDestroyFramebuffer(device, depthFramebuffer, nullptr);
 
-
-	vkDestroyPipeline(device, pipelineCompute, nullptr);
-	vkDestroyPipelineLayout(device, pipelineLayoutCompute, nullptr);
 	pipeline.destroy();
-
 
 	vkDestroyRenderPass(device, renderPass, nullptr);
 	vkDestroyRenderPass(device, depthPrePass, nullptr);
@@ -1773,7 +1689,6 @@ int main(){
 	mainLoop();
 	shutdownVulkan();
 	shutdownGLFW();
-
 	return 0;
 }
 
