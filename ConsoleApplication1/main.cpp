@@ -16,7 +16,6 @@
 #include <../glm/gtc/matrix_transform.hpp>
 #include <../glm/gtc/random.hpp>
 #include <chrono>
-#define DEBUG_BUILD
 
 const int MAX_POINT_LIGHT_COUNT = 1024 * 8;
 const uint32_t MAX_POINT_LIGHT_PER_TILE = 1023;
@@ -171,9 +170,6 @@ SceneConfiguration sceneConfiguration;
 
 Mesh mesh;
 
-std::vector<Vertex> vertices = {};
-std::vector<uint32_t> indices = {};
-
 void printStats(VkPhysicalDevice &device) {
 	//Gibt Eigenschaften der GPU aus
 	VkPhysicalDeviceProperties properties = { };
@@ -316,7 +312,7 @@ void createInstance() {
 	appInfo.engineVersion = VK_MAKE_VERSION(0, 0, 0);
 	appInfo.apiVersion = VK_API_VERSION_1_1;
 
-#ifdef DEBUG_BUILD
+#ifdef _DEBUG
 	const std::vector<const char*> validationLayers = {
 		"VK_LAYER_LUNARG_standard_validation"
 	};
@@ -419,6 +415,9 @@ void printallPhysicalDevicesStats() {
 	for (uint32_t i = 0; i < allPhysicalDevices.size(); i++) {
 		printStats(allPhysicalDevices[i]);
 	}
+#ifndef _DEBUG
+	system("cls");
+#endif
 }
 
 void createLogicalDevice() {	
@@ -451,7 +450,7 @@ void createLogicalDevice() {
 	usedFeatures.fragmentStoresAndAtomics = VK_TRUE;	   // Wichtig für Shader
 
 	const std::vector<const char*> deviceExtensions = {
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME //= "VK_KHR_swapchain"
 	};
 
 	VkDeviceCreateInfo deviceCreateInfo = { };
@@ -929,10 +928,8 @@ void loadTexture() {
 }
 
 void loadMesh() {
-	mesh.loadModelFromFile(device, physicalDevice, queue, commandPool, "meshes/city.obj", descriptorPool);
-	sceneConfiguration.scale = 0.08f;
-	vertices = mesh.getVertices();
-	indices = mesh.getIndices();
+	mesh.loadModelFromFile(device, physicalDevice, queue, commandPool, "meshes/dragon.obj", descriptorPool); //dragon, city, plane, cube
+	sceneConfiguration.scale = 0.5f; //andere Modelle, anderer scale. dragon = 0.5, city = 0.08
 }
 
 void createDescriptorPool() {
@@ -1465,12 +1462,12 @@ void drawFrame() {
 	submitInfoLightculling.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 	submitInfoLightculling.pNext = nullptr;
 	submitInfoLightculling.waitSemaphoreCount = 1;
-	submitInfoLightculling.pWaitSemaphores = &semaphoreDepthPrepassDone;
-	submitInfoLightculling.pWaitDstStageMask = waitStagesLight;
+	submitInfoLightculling.pWaitSemaphores = &semaphoreDepthPrepassDone; //warte auf diese
+	submitInfoLightculling.pWaitDstStageMask = waitStagesLight; //wo in der Pipeline warten
 	submitInfoLightculling.commandBufferCount = 1;
 	submitInfoLightculling.pCommandBuffers = &lightCullingCommandBuffer;
 	submitInfoLightculling.signalSemaphoreCount = 1;
-	submitInfoLightculling.pSignalSemaphores = &semaphoreLightcullingDone;
+	submitInfoLightculling.pSignalSemaphores = &semaphoreLightcullingDone; //setze diese am Ende
 
 	result = vkQueueSubmit(computeQueue, 1, &submitInfoLightculling, VK_NULL_HANDLE);
 	CHECK_FOR_CRASH(result);
@@ -1599,6 +1596,8 @@ void mainLoop() {
 	auto startTime = std::chrono::high_resolution_clock::now();
 	decltype(startTime) current;
 	float timeSinceStart;
+	std::cout << 2.0 * 16 / windowWidth << std::endl;
+	std::cout << tileCountPerRow;
 
 	while (!glfwWindowShouldClose(window)) {
 		current = std::chrono::high_resolution_clock::now();
@@ -1607,6 +1606,31 @@ void mainLoop() {
 		updateMVP(timeSinceStart);
 		updateLights();
 		drawFrame();
+		auto after = std::chrono::high_resolution_clock::now();
+		//FPS ausgeben
+		double timeNeededInMicro = std::chrono::duration_cast<std::chrono::microseconds>(after - current).count();
+		//std::cout << "FPS: " << 1 / (timeNeededInMicro / 1000000) << std::endl;
+
+		//Einfache Kamerabewegungen
+		if (GetAsyncKeyState('D') & 0x8000){
+			sceneConfiguration.cameraPosition.x += 1;
+		}
+		if (GetAsyncKeyState('A') & 0x8000) {
+			sceneConfiguration.cameraPosition.x -= 1;
+		}
+		if (GetAsyncKeyState('S') & 0x8000) {
+			sceneConfiguration.cameraPosition.y += 1;
+		}
+		if (GetAsyncKeyState('W') & 0x8000) {
+			sceneConfiguration.cameraPosition.y -= 1;
+		}
+		if (GetAsyncKeyState('R') & 0x8000) {
+			sceneConfiguration.cameraPosition = glm::vec3{ 0.7f, 7.0f, 5.0f }; //reset cam
+		}
+
+		if (GetAsyncKeyState(VK_ESCAPE) & 0x8000) {
+			return;
+		}
 	}
 }
 
@@ -1691,23 +1715,3 @@ int main(){
 	shutdownGLFW();
 	return 0;
 }
-
-/*
-TODO
-	Kamera auslagern
-	Kamera bewegen können
-
-	Eigene Compute Queue und Command Pool
-*/
-
-
-// Programm ausführen: STRG+F5 oder "Debuggen" > Menü "Ohne Debuggen starten"
-// Programm debuggen: F5 oder "Debuggen" > Menü "Debuggen starten"
-
-// Tipps für den Einstieg: 
-//   1. Verwenden Sie das Projektmappen-Explorer-Fenster zum Hinzufügen/Verwalten von Dateien.
-//   2. Verwenden Sie das Team Explorer-Fenster zum Herstellen einer Verbindung mit der Quellcodeverwaltung.
-//   3. Verwenden Sie das Ausgabefenster, um die Buildausgabe und andere Nachrichten anzuzeigen.
-//   4. Verwenden Sie das Fenster "Fehlerliste", um Fehler anzuzeigen.
-//   5. Wechseln Sie zu "Projekt" > "Neues Element hinzufügen", um neue Codedateien zu erstellen, bzw. zu "Projekt" > "Vorhandenes Element hinzufügen", um dem Projekt vorhandene Codedateien hinzuzufügen.
-//   6. Um dieses Projekt später erneut zu öffnen, wechseln Sie zu "Datei" > "Öffnen" > "Projekt", und wählen Sie die SLN-Datei aus.

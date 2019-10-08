@@ -41,65 +41,60 @@ layout(std140, set = 1, binding = 0) readonly buffer CameraUbo{
 layout(set = 2, binding = 0) uniform sampler2D depth_sampler;
 
 // vulkan ndc, minDepth = 0.0, maxDepth = 1.0
-// ndc = normalized device space, -1 to 1 for X Y and Z
-const vec2 ndc_upper_left = vec2(-1.0, -1.0);
-const float ndc_near_plane = 0.0;
-const float ndc_far_plane = 1.0;
+// ndc = normalized device coordinates, -1 bis 1 für X Y und Z
+const vec2 ndcUpperLeft = vec2(-1.0, -1.0);
 
-struct ViewFrustum
-{
+struct ViewFrustum{
 	vec4 planes[6];
-	vec3 points[8]; // 0-3 near 4-7 far
+	vec3 corners[8]; // 0-3 near 4-7 far
 };
 
 layout(local_size_x = TILE_SIZE) in;
 //layout(local_size_variable) in;
 
 shared ViewFrustum frustum;
-shared uint light_count_for_tile;
-shared float min_depth;
-shared float max_depth;
+shared uint lightCountForTile;
+shared float minDepth;
+shared float maxDepth;
 
-ViewFrustum createFrustum(ivec2 tile_id){
+ViewFrustum createFrustum(ivec2 tileID){
 	mat4 inv_projview = inverse(camera.projview);
-	vec2 ndc_size_per_tile = 2.0 * vec2(TILE_SIZE, TILE_SIZE) / pushConstants.viewportSize;
+	vec2 ndcSizePerTile = 2.0 * vec2(TILE_SIZE, TILE_SIZE) / pushConstants.viewportSize;
 
-	vec2 ndc_pts[4];  // corners of tile in ndc
-	ndc_pts[0] = ndc_upper_left + tile_id * ndc_size_per_tile;			 // upper left
-	ndc_pts[1] = vec2(ndc_pts[0].x + ndc_size_per_tile.x, ndc_pts[0].y); // upper right
-	ndc_pts[2] = ndc_pts[0] + ndc_size_per_tile;						 // lower right
-	ndc_pts[3] = vec2(ndc_pts[0].x, ndc_pts[0].y + ndc_size_per_tile.y); // lower left
+	vec2 ndcCorners[4];  // Ecken des Tiles in ndc
+	ndcCorners[0] = ndcUpperLeft + tileID * ndcSizePerTile;			 // upper left
+	ndcCorners[1] = vec2(ndcCorners[0].x + ndcSizePerTile.x, ndcCorners[0].y); // upper right
+	ndcCorners[2] = ndcCorners[0] + ndcSizePerTile;						 // lower right
+	ndcCorners[3] = vec2(ndcCorners[0].x, ndcCorners[0].y + ndcSizePerTile.y); // lower left
 	
 	ViewFrustum frustum;
 
 	vec4 temp;
-	for (int i = 0; i < 4; i++)
-	{
-		temp = inv_projview * vec4(ndc_pts[i], min_depth, 1.0);
-		frustum.points[i] = temp.xyz / temp.w;
-		temp = inv_projview * vec4(ndc_pts[i], max_depth, 1.0);
-		frustum.points[i + 4] = temp.xyz / temp.w;
+	for (int i = 0; i < 4; i++){
+		temp = inv_projview * vec4(ndcCorners[i], minDepth, 1.0);
+		frustum.corners[i] = temp.xyz / temp.w;
+		temp = inv_projview * vec4(ndcCorners[i], maxDepth, 1.0);
+		frustum.corners[i + 4] = temp.xyz / temp.w;
 	}
 
 	vec3 temp_normal;
-	for (int i = 0; i < 4; i++)
-	{
-		// temp_normal: normal without normalization
-		temp_normal = cross(frustum.points[i] - camera.cameraPos, frustum.points[i + 1] - camera.cameraPos);
+	for (int i = 0; i < 4; i++){
+		// temp_normal: normal ohne normalisation
+		temp_normal = cross(frustum.corners[i] - camera.cameraPos, frustum.corners[i + 1] - camera.cameraPos); //Normalenvektor einer Ebene des Frustums
 		temp_normal = normalize(temp_normal);
-		frustum.planes[i] = vec4(temp_normal, - dot(temp_normal, frustum.points[i]));
+		frustum.planes[i] = vec4(temp_normal, - dot(temp_normal, frustum.corners[i])); //Entfernung zum Ursprung
 	}
 	// near plane
 	{
-		temp_normal = cross(frustum.points[1] - frustum.points[0], frustum.points[3] - frustum.points[0]);
+		temp_normal = cross(frustum.corners[1] - frustum.corners[0], frustum.corners[3] - frustum.corners[0]);
 		temp_normal = normalize(temp_normal);
-		frustum.planes[4] = vec4(temp_normal, - dot(temp_normal, frustum.points[0]));
+		frustum.planes[4] = vec4(temp_normal, - dot(temp_normal, frustum.corners[0]));
 	}
 	// far plane
 	{
-		temp_normal = cross(frustum.points[7] - frustum.points[4], frustum.points[5] - frustum.points[4]);
+		temp_normal = cross(frustum.corners[7] - frustum.corners[4], frustum.corners[5] - frustum.corners[4]);
 		temp_normal = normalize(temp_normal);
-		frustum.planes[5] = vec4(temp_normal, - dot(temp_normal, frustum.points[4]));
+		frustum.planes[5] = vec4(temp_normal, - dot(temp_normal, frustum.corners[4]));
 	}
 	return frustum;
 }
@@ -110,7 +105,7 @@ bool isCollided(PointLight light, ViewFrustum frustum){
 	//Sphere-Plane-Test
 	for (int i = 0; i < 6; i++){
 		if (dot(light.pos, frustum.planes[i].xyz) + frustum.planes[i].w  < - light.radius ){
-			result = false;
+			result = false; //außerhalb des Frustums
 			break;
 		}
 	}
@@ -118,50 +113,50 @@ bool isCollided(PointLight light, ViewFrustum frustum){
 		return false;
 	}
 
-	//Bbox corner test to reduce false positives
-	vec3 light_bbox_max = light.pos + vec3(light.radius);
-    vec3 light_bbox_min = light.pos - vec3(light.radius);
+	//Bbox corner test für weniger false positives
+	vec3 lightBboxMax = light.pos + vec3(light.radius);
+    vec3 lightBboxMin = light.pos - vec3(light.radius);
     int probe;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].x > light_bbox_max.x)?1:0); if( probe==8 ) return false;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].x < light_bbox_min.x)?1:0); if( probe==8 ) return false;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].y > light_bbox_max.y)?1:0); if( probe==8 ) return false;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].y < light_bbox_min.y)?1:0); if( probe==8 ) return false;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].z > light_bbox_max.z)?1:0); if( probe==8 ) return false;
-    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.points[i].z < light_bbox_min.z)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].x > lightBboxMax.x)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].x < lightBboxMin.x)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].y > lightBboxMax.y)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].y < lightBboxMin.y)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].z > lightBboxMax.z)?1:0); if( probe==8 ) return false;
+    probe=0; for( int i=0; i<8; i++ ) probe += ((frustum.corners[i].z < lightBboxMin.z)?1:0); if( probe==8 ) return false;
 
 	return true;
 }
 
 void main(){
-	ivec2 tile_id = ivec2(gl_WorkGroupID.xy);
-	uint tile_index = tile_id.y * pushConstants.tileNums.x + tile_id.x;
+	ivec2 tileID = ivec2(gl_WorkGroupID.xy);
+	uint tile_index = tileID.y * pushConstants.tileNums.x + tileID.x;
 
 	if (gl_LocalInvocationIndex == 0){
-		min_depth = 1.0;
-		max_depth = 0.0;
+		minDepth = 1.0;
+		maxDepth = 0.0;
 		
 		for (int y = 0; y < TILE_SIZE; y++){
 			for (int x = 0; x < TILE_SIZE; x++){
-				vec2 sample_loc = (vec2(TILE_SIZE, TILE_SIZE) * tile_id + vec2(x, y) ) / pushConstants.viewportSize;
+				vec2 sample_loc = (vec2(TILE_SIZE, TILE_SIZE) * tileID + vec2(x, y) ) / pushConstants.viewportSize;
 				float pre_depth = texture(depth_sampler, sample_loc).x;
-				min_depth = min(min_depth, pre_depth);
-				max_depth = max(max_depth, pre_depth);
+				minDepth = min(minDepth, pre_depth);
+				maxDepth = max(maxDepth, pre_depth);
 			}
 		}
 
-		if (min_depth >= max_depth){
-			min_depth = max_depth;
+		if (minDepth >= maxDepth){
+			minDepth = maxDepth;
 		}
 
-		frustum = createFrustum(tile_id);
-		light_count_for_tile = 0;
+		frustum = createFrustum(tileID);
+		lightCountForTile = 0;
 	}
 
 	barrier();
 
-	for (uint i = gl_LocalInvocationIndex; i < light_num && light_count_for_tile < MAX_POINT_LIGHT_PER_TILE; i += gl_WorkGroupSize.x){
+	for (uint i = gl_LocalInvocationIndex; i < light_num && lightCountForTile < MAX_POINT_LIGHT_PER_TILE; i += gl_WorkGroupSize.x){
 		if (isCollided(pointlights[i], frustum)){
-			uint slot = atomicAdd(light_count_for_tile, 1);
+			uint slot = atomicAdd(lightCountForTile, 1);
 			if (slot >= MAX_POINT_LIGHT_PER_TILE) {break;}
 			light_visiblities[tile_index].lightindices[slot] = i;
 		}
@@ -170,6 +165,6 @@ void main(){
 	barrier();
 
 	if (gl_LocalInvocationIndex == 0){
-		light_visiblities[tile_index].count = min(MAX_POINT_LIGHT_PER_TILE, light_count_for_tile);
+		light_visiblities[tile_index].count = min(MAX_POINT_LIGHT_PER_TILE, lightCountForTile);
 	}
 }

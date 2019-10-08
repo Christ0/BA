@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects : enable
 //#extension GL_KHR_vulkan_glsl : enable
 
-layout(std140, set = 0, binding = 0) uniform SceneObjectUbo{
+layout(std140, set = 0, binding = 0) uniform UniformBufferObject{
     mat4 model;
 	vec3 lightPosition;
 } transform;
@@ -41,6 +41,6 @@ void main(){ //Für jeden Vertex ausführen
 	fragNormal = normalize((invTransModel * vec4(in_Normal, 0.0)).xyz);
 	fragWorldPos = vec3(transform.model * vec4(in_pos, 1.0));
 	//fragViewVec = -(camera.view * fragWorldPos).xyz;
-	fragLightVec = mat3(camera.view) * (transform.lightPosition - vec3(fragWorldPos));
+	//fragLightVec = mat3(camera.view) * (transform.lightPosition - vec3(fragWorldPos));
 	//fragNormal = mat3(camera.view) * mat3(transform.model) * in_Normal; //model zu mat3 casten, damit der Translate Teil wegfällt und die normals nicht verschoben werden
 }

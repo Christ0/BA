@@ -1,0 +1,29 @@
+﻿  main.cpp
+c:\program files (x86)\windows kits\10\include\10.0.17763.0\shared\minwindef.h(130): warning C4005: "APIENTRY": Makro-Neudefinition
+  c:\users\chris\source\repos\consoleapplication1\glfw-3.2.1.bin.win32\include\glfw\glfw3.h(98): note: Siehe vorherige Definition von "APIENTRY"
+c:\program files (x86)\windows kits\10\include\10.0.17763.0\um\wingdi.h(36): warning C4005: "WINGDIAPI": Makro-Neudefinition
+  c:\users\chris\source\repos\consoleapplication1\glfw-3.2.1.bin.win32\include\glfw\glfw3.h(107): note: Siehe vorherige Definition von "WINGDIAPI"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\easyimage.h(87): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\mesh.h(141): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\mesh.h(157): warning C4244: "Argument": Konvertierung von "VkDeviceSize" in "size_t", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(80): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(81): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\pipeline.h(270): warning C4101: "pipelineShaderStageCreateInfoCompute": Unreferenzierte lokale Variable
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(267): warning C4553: "==": Ergebnis des Ausdrucks nicht verwendet. War "=" gemeint?
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(268): warning C4553: "==": Ergebnis des Ausdrucks nicht verwendet. War "=" gemeint?
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(399): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1327): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1328): warning C4244: "=": Konvertierung von "uint32_t" in "float", möglicher Datenverlust
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1572): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1614): warning C4244: "Initialisierung": Konvertierung von "_Rep" in "double", möglicher Datenverlust
+          with
+          [
+              _Rep=__int64
+          ]
+c:\users\chris\source\repos\consoleapplication1\consoleapplication1\main.cpp(1669): warning C4018: "<": Konflikt zwischen "signed" und "unsigned"
+  Code wird generiert.
+  3 of 3325 functions (<0.1%) were compiled, the rest were copied from previous compilation.
+    0 functions were new in current compilation
+    0 functions had inline decision re-evaluated but remain unchanged
+  Codegenerierung ist abgeschlossen.
+  ConsoleApplication1.vcxproj -> C:\Users\Chris\source\repos\ConsoleApplication1\Release\VulkanRenderer.exe

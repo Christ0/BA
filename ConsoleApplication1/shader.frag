@@ -58,12 +58,6 @@ layout(binding = 1) uniform sampler2D tex;
 
 layout(early_fragment_tests) in;
 
-//layout(push_constant) uniform PushConstants{
-//	bool usePhong;
-//} pushConts;
-
-//vec4 phong();
-//vec4 cartoon();
 
 void main(){
 	ivec2 tileID = ivec2(gl_FragCoord.xy / TILE_SIZE);
@@ -80,16 +74,18 @@ void main(){
 		}
 		else if(pushConstants.debugviewIndex == 3){
 			float preDepth = texture(depthSampler, (gl_FragCoord.xy/pushConstants.viewportSize) ).x;
-            outColor = vec4(vec3( preDepth ),1.0);
+            outColor = vec4(vec3( preDepth ),1.0); //depth debug
 		}
 		else if(pushConstants.debugviewIndex == 4){
-			 outColor = vec4(abs(fragNormal), 1.0);
+			 outColor = vec4(abs(fragNormal), 1.0); //normal debug
 		}
 		return;
 	}
 
+	//for(int i = 0; i < pointlights.length(); i++){
 	for(int i = 0; i < tileLightNum; i++){
 		PointLight light = pointlights[lightVisiblities[tileIndex].lightindices[i]];
+		//PointLight light = pointlights[i];
 		vec3 lightDirection = normalize(light.pos - fragWorldPos);
 		float lambertian = max(dot(lightDirection, fragNormal), 0.0);
 
@@ -115,23 +111,10 @@ void main(){
 	}
 
 	outColor = vec4(illuminance, 1.0);
-	
-	//outColor = phong();
-
-	//outColor = vec4(fragColor, 1.0);
-	//outColor = texture(tex, fragUVCoord);
-
-
-	
-	
-	//float val = dot(N, V);
-	//outColor = vec4(val, val, val, 1.0);
-
-	
-
-	//outColor = vec4(N, 1.0);
 }
 
+
+//nicht mehr nötig
 vec4 phong(){
 	vec3 N = normalize(fragNormal);
 	vec3 L = normalize(fragLightVec);
@@ -145,26 +128,4 @@ vec4 phong(){
 	//return vec4(N + specular, 1.0);
 
 	return vec4(ambient + diffuse + specular, 1.0);
-}
-
-vec4 cartoon(){
-	vec3 N = normalize(fragNormal);
-	vec3 L = normalize(fragLightVec);
-	vec3 V = normalize(fragViewVec);
-	vec3 R = reflect(-L, N);
-
-	if(pow(max(dot(R, V), 0.0), 5.0) > 0.5){
-		outColor = vec4(1.0);
-	}
-	else if(dot(V, N) < 0.5){
-		outColor = vec4(fragColor / 10, 1.0);
-	}
-	else if(max(dot(N, L), 0.0) >= 0.1){
-		outColor = vec4(fragColor, 1.0);
-	}
-	else{
-		outColor = vec4(fragColor / 5, 1.0);
-	}
-
-	return outColor;
 }

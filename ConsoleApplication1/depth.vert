@@ -6,7 +6,7 @@ layout(std140, set = 0, binding = 0) uniform UniformBufferObject{
     mat4 model;
 } transform;
 
-layout(std140, set = 1, binding = 0) readonly buffer CameraUbo{ // FIXME: change back to uniform
+layout(std140, set = 1, binding = 0) readonly buffer CameraUbo{ 
     mat4 view;
     mat4 proj;
     mat4 projview;
